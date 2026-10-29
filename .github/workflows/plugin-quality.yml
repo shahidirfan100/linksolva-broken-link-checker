@@ -57,7 +57,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run the official Plugin Check suite
-        uses: wordpress/plugin-check-action@v1.0.6
+        uses: wordpress/plugin-check-action@v1.1.9
         with:
           wp-version: latest
           strict: true
