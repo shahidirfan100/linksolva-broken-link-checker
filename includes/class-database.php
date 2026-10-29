@@ -366,7 +366,7 @@ final class Database {
 		self::delete_history_rows( $tables, $remove_ids );
 		$placeholders = implode( ', ', array_fill( 0, count( $remove_ids ), '%d' ) );
 		$params       = array_merge( array( $tables['scans'] ), $remove_ids );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- The list contains only one %d per sanitized scan ID; table and IDs are passed to prepare().
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Each %d maps to a sanitized scan ID, and the table and IDs are prepared.
 		return false !== $wpdb->query( $wpdb->prepare( "UPDATE %i SET history_saved = 0 WHERE id IN ({$placeholders})", ...$params ) );
 	}
 
@@ -448,9 +448,9 @@ final class Database {
 		$where_sql   = implode( ' AND ', $where );
 		$count_args = array_merge( array( $table ), $params );
 		$list_args  = array_merge( array( $table ), $params, array( $per_page, ( $page - 1 ) * $per_page ) );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- where_sql is assembled only from fixed clauses and %s/%d placeholders; request values are separately prepared.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Uses fixed filters and placeholders; all request values are separately prepared.
 		$total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM %i WHERE {$where_sql}", ...$count_args ) );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- where_sql is assembled only from fixed clauses and %s/%d placeholders; request values are separately prepared.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Uses fixed filters and placeholders; all request values are separately prepared.
 		$items = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM %i WHERE {$where_sql} ORDER BY FIELD(status, 'broken','redirect','blocked','rate_limited','temporary_error','ssl_error','dns_error','timeout','unverified','pending','healthy','ignored'), id DESC LIMIT %d OFFSET %d", ...$list_args ) );
 		return array( 'total' => $total, 'items' => $items );
 	}
@@ -501,7 +501,7 @@ final class Database {
 		$placeholders = implode( ', ', array_fill( 0, count( $scan_ids ), '%d' ) );
 		foreach ( array( 'history_occurrences', 'history_resources' ) as $key ) {
 			$params = array_merge( array( $tables[ $key ] ), $scan_ids );
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- The list contains only one %d per sanitized scan ID; table and IDs are passed to prepare().
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Each %d maps to a sanitized scan ID, and the table and IDs are prepared.
 			$wpdb->query( $wpdb->prepare( "DELETE FROM %i WHERE scan_id IN ({$placeholders})", ...$params ) );
 		}
 	}
