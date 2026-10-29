@@ -17,6 +17,7 @@
 		perPage: 20,
 		monitoring: false,
 		monitorTimer: null,
+		refreshId: 0,
 		lastProgress: null,
 		drawerOpener: null,
 		bodyOverflow: ''
@@ -76,6 +77,7 @@
 		options.headers = options.headers || {};
 		options.headers['X-WP-Nonce'] = config.nonce;
 		options.headers['Content-Type'] = 'application/json';
+		options.cache = 'no-store';
 		return fetch(endpoint, options).then(function (response) {
 			return response.json().catch(function () { return {}; }).then(function (body) {
 				if (!response.ok) {
@@ -186,12 +188,46 @@
 		});
 	}
 
+	function isActiveScan(progress) {
+		return !!progress && ['discovering', 'checking', 'cancelling'].indexOf(progress.state) !== -1;
+	}
+
+	function scanStatusMarkup(progress) {
+		return translateMarkup('<div class="sblc-scan-status" role="status"><strong>' + escapeHtml(progress.phase === 'discovery' ? t('Discovering sources') : t('Verifying resources')) + '</strong><span>' + escapeHtml(progress.message || '') + '</span><div class="sblc-progress" aria-label="Scan progress"><span style="width:' + escapeHtml(progress.percent || 0) + '%"></span></div><span>' + escapeHtml(progress.percent || 0) + '%</span>' + button(t('Stop scan'), 'cancel-scan', 'sblc-button-danger', ' data-scan-id="' + escapeHtml(progress.scan_id) + '"') + '</div>');
+	}
+
+	function showActiveScan(progress) {
+		if (!isActiveScan(progress)) { return; }
+		var screen = root.querySelector('[data-screen-content]');
+		if (!screen) { return; }
+		var wrapper = document.createElement('div');
+		wrapper.innerHTML = scanStatusMarkup(progress);
+		var nextStatus = wrapper.firstElementChild;
+		var currentStatus = screen.querySelector('.sblc-scan-status');
+		if (currentStatus) {
+			currentStatus.parentNode.replaceChild(nextStatus, currentStatus);
+			return;
+		}
+		var toolbar = screen.querySelector('.sblc-toolbar');
+		if (toolbar) {
+			screen.insertBefore(nextStatus, toolbar.nextSibling);
+		} else {
+			screen.insertBefore(nextStatus, screen.firstChild);
+		}
+	}
+
+	function resumeActiveScan(progress) {
+		if (isActiveScan(progress) && !state.monitoring && !state.monitorTimer) {
+			monitor(progress.scan_id);
+		}
+	}
+
 	function renderFindings(data) {
 		var progress = data.progress || {};
 		var counts = data.counts || progress.counts || {};
-		var active = ['discovering', 'checking', 'cancelling'].indexOf(progress.state) !== -1;
+		var active = isActiveScan(progress);
 		var scanStatus = active
-			? translateMarkup('<div class="sblc-scan-status" role="status"><strong>' + escapeHtml(progress.phase === 'discovery' ? t('Discovering sources') : t('Verifying resources')) + '</strong><span>' + escapeHtml(progress.message || '') + '</span><div class="sblc-progress" aria-label="Scan progress"><span style="width:' + escapeHtml(progress.percent || 0) + '%"></span></div><span>' + escapeHtml(progress.percent || 0) + '%</span>' + button(t('Stop scan'), 'cancel-scan', 'sblc-button-danger', ' data-scan-id="' + escapeHtml(progress.scan_id) + '"') + '</div>')
+			? scanStatusMarkup(progress)
 			: progress.state === 'completed' && progress.stats && Number(progress.stats.skipped_resources) > 0
 				? '<div class="sblc-notice" role="status">' + escapeHtml(progress.message || '') + '</div>'
 				: '';
@@ -222,9 +258,6 @@
 			scopeSelect.innerHTML = '<option value="all">' + escapeHtml(t('All links')) + '</option><option value="internal">' + escapeHtml(t('Internal links')) + '</option><option value="external">' + escapeHtml(t('External links')) + '</option>';
 			scopeSelect.value = state.scope;
 			typeSelect.parentNode.insertBefore(scopeSelect, typeSelect);
-		}
-		if (active && !state.monitoring && !state.monitorTimer) {
-			monitor(progress.scan_id);
 		}
 	}
 
@@ -306,13 +339,27 @@
 		if (!root.querySelector('[data-screen-content] .sblc-toolbar')) {
 			root.querySelector('[data-screen-content]').innerHTML = '<div class="sblc-loading">' + escapeHtml(t('Loading findings…')) + '</div>';
 		}
+		var requestId = ++state.refreshId;
 		var query = '?page=' + state.page + '&per_page=' + state.perPage + '&status=' + encodeURIComponent(state.status) + '&type=' + encodeURIComponent(state.type) + '&scope=' + encodeURIComponent(state.scope) + '&search=' + encodeURIComponent(state.search);
-		return Promise.all([api('/dashboard'), api('/resources' + query)]).then(function (responses) {
+		var dashboardRequest = api('/dashboard');
+		var progressRequest = dashboardRequest.then(function (dashboard) {
+			if (requestId === state.refreshId) {
+				state.lastProgress = dashboard.progress;
+				showActiveScan(dashboard.progress);
+				resumeActiveScan(dashboard.progress);
+			}
+			return dashboard;
+		});
+		return Promise.all([progressRequest, api('/resources' + query)]).then(function (responses) {
+			if (requestId !== state.refreshId) { return; }
 			var dashboard = responses[0];
 			dashboard.list = responses[1];
 			state.lastProgress = dashboard.progress;
 			renderFindings(dashboard);
-		}).catch(function (error) { notice(error.message, 'error'); });
+			resumeActiveScan(dashboard.progress);
+		}).catch(function (error) {
+			if (requestId === state.refreshId) { notice(error.message, 'error'); }
+		});
 	}
 
 	function scheduleMonitor(scanId, delay, retryCount) {
@@ -329,6 +376,7 @@
 		state.monitoring = true;
 		post('/scan/step', { scan_id: scanId }).then(function (progress) {
 			state.lastProgress = progress;
+			showActiveScan(progress);
 			return refresh().then(function () {
 				state.monitoring = false;
 				var latest = state.lastProgress || progress;
