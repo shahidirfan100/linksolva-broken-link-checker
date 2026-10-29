@@ -4,7 +4,7 @@ Tags: broken links, link checker, broken images, redirects, local scanner
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.14
+Stable tag: 1.0.15
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -105,8 +105,11 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 
 == Changelog ==
 
+= 1.0.15 =
+* Check discovered links as the scan continues to find more, and show progress for URLs found so far.
+
 = 1.0.14 =
-* Check links as they are discovered and show the percentage of URLs found so far that have been checked.
+* Keep scans resumable when scheduled workers are delayed and show verification progress against a fixed URL total.
 * Prevent a new scan from clearing the current report if its history snapshot cannot be saved.
 * Report database errors instead of treating missing progress data as a completed scan.
 
@@ -185,6 +188,9 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * Added evidence-based HTTP classifications, URL deduplication, bounded scanning, safe repairs, and conflict-aware undo.
 
 == Upgrade Notice ==
+
+= 1.0.15 =
+Checks URLs during discovery and shows progress for URLs found so far.
 
 = 1.0.14 =
 Improves scan progress reporting and protects the previous report when history cannot be saved.

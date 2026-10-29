@@ -42,7 +42,7 @@ The current release already provides much of this baseline: local scans, posts a
 - Adjust worker duration, batch size, and parallel checks to PHP execution-time and memory headroom.
 - Keep CPU-quota behavior conservative because shared hosts do not expose a reliable per-account CPU signal.
 
-## Release 1.0.14 candidate
+## Release 1.0.15 candidate
 
 - Check discovered URLs between source batches and show progress against URLs found so far, noting that the percentage can change as new URLs are discovered.
 - Keep scans resumable when cron is delayed; do not treat inactivity alone as a failed URL.

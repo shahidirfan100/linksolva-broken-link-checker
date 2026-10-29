@@ -40,6 +40,9 @@ jobs:
       - name: Check admin JavaScript syntax
         run: node --check assets/js/admin.js
 
+      - name: Check scan status renderer
+        run: node tests/scan-status-ui.js
+
       - name: Check release version consistency
         run: |
           python3 - <<'PY'
