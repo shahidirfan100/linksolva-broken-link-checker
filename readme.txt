@@ -4,7 +4,7 @@ Tags: broken links, link checker, broken images, redirects, local scanner
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.18
+Stable tag: 1.0.19
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -105,6 +105,10 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 
 == Changelog ==
 
+= 1.0.19 =
+* Read multiple small source batches per worker when no URLs are waiting, within the worker time limit.
+* Skip HTML parsing for content without supported link elements or plain HTTP URLs.
+
 = 1.0.18 =
 * Stop an incomplete scan when a discovered URL or its source location cannot be saved.
 
@@ -200,6 +204,9 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * Added evidence-based HTTP classifications, URL deduplication, bounded scanning, safe repairs, and conflict-aware undo.
 
 == Upgrade Notice ==
+
+= 1.0.19 =
+Improves source discovery on sites with many posts containing no links.
 
 = 1.0.18 =
 Reports database failures during URL discovery instead of silently omitting findings.

@@ -126,6 +126,8 @@ jobs:
           php /tmp/wp.phar plugin activate linksolva-broken-link-checker --path=/tmp/linksolva-wp
       - name: Measure a synthetic 2,000-URL scan and history snapshot
         run: php /tmp/wp.phar eval-file tests/benchmark-scan.php --path=/tmp/linksolva-wp
+      - name: Measure sparse 30,000-job discovery
+        run: php /tmp/wp.phar eval-file tests/benchmark-large-sparse.php --path=/tmp/linksolva-wp
       - name: Check duplicate sources and no-progress recovery
         run: php /tmp/wp.phar eval-file tests/integration-duplicate-scan.php --path=/tmp/linksolva-wp
       - name: Check discovery database failures

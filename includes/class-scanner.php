@@ -18,6 +18,7 @@ final class Scanner {
 	const PRIORITY_OPTION      = 'sblc_scan_priority';
 	const NO_PROGRESS_OPTION   = 'sblc_scan_no_progress';
 	const NO_PROGRESS_LIMIT    = 5;
+	const DISCOVERY_BATCH_LIMIT = 20;
 	const WORKER_STALE_SECONDS = 60;
 
 	/**
@@ -121,13 +122,21 @@ final class Scanner {
 		$limits   = Settings::worker_limits();
 		$deadline = microtime( true ) + $limits['execution_seconds'];
 		try {
-			if ( 'discovering' === $scan->state ) {
+			$discovery_batches = 0;
+			while ( $scan && 'discovering' === $scan->state && $discovery_batches < self::DISCOVERY_BATCH_LIMIT && microtime( true ) < $deadline ) {
 				$pending = Database::resources_for_scan( $scan->id, 1 );
 				if ( null === $pending ) {
 					throw new \RuntimeException( 'Could not read the URL queue.' );
 				}
-				if ( empty( $pending ) ) {
-					self::discover( $scan, $deadline, $limits['batch_size'] );
+				if ( ! empty( $pending ) ) {
+					break;
+				}
+				$position = self::work_key( $scan );
+				self::discover( $scan, $deadline, $limits['batch_size'] );
+				++$discovery_batches;
+				$scan = Database::get_scan( $scan_id );
+				if ( ! $scan || self::work_key( $scan ) === $position ) {
+					break;
 				}
 			}
 			$scan = Database::get_scan( $scan_id );

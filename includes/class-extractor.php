@@ -27,6 +27,10 @@ final class Extractor {
 		if ( '' === trim( $content ) ) {
 			return $found;
 		}
+		// Skip DOM parsing when neither a supported element nor a plain HTTP URL is present.
+		if ( ! preg_match( '~https?://|<\s*(?:a|img|source|video|audio)\b~i', $content ) ) {
+			return $found;
+		}
 
 		if ( class_exists( 'DOMDocument' ) && self::looks_like_html( $content ) ) {
 			$previous = libxml_use_internal_errors( true );
