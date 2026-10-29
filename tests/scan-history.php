@@ -168,7 +168,7 @@ namespace LinkSolva\BrokenLinkChecker {
 	}
 	$prune_queries = array_slice( $wpdb->queries, $before_prune );
 	$prune_sql = implode( ' ', $prune_queries );
-	if ( 2 !== substr_count( $prune_sql, 'DELETE FROM' ) || false === strpos( $prune_sql, 'UPDATE wp_sblc_scans' ) ) {
+	if ( 2 !== substr_count( $prune_sql, 'DELETE FROM' ) || false === strpos( $prune_sql, 'UPDATE %i SET history_saved = 0' ) ) {
 		fwrite( STDERR, "Pruning must remove both snapshot tables and clear the old scan markers.\n" );
 		exit( 1 );
 	}
