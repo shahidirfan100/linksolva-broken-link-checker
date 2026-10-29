@@ -56,10 +56,20 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Assemble the WordPress.org plugin package
+        run: |
+          package_dir="build/linksolva-broken-link-checker"
+          mkdir -p "$package_dir"
+          git archive --format=tar HEAD -- . \
+            ':(exclude).github' \
+            ':(exclude)ROADMAP.md' \
+            ':(exclude).gitignore' \
+            ':(exclude)wordpress-org-assets' |
+            tar -xf - -C "$package_dir"
+
       - name: Run the official Plugin Check suite
         uses: wordpress/plugin-check-action@v1.1.9
         with:
+          build-dir: ./build/linksolva-broken-link-checker
           wp-version: latest
           strict: true
-          exclude-directories: .github
-          exclude-files: ROADMAP.md
