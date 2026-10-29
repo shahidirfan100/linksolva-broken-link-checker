@@ -42,6 +42,8 @@ namespace {
 		public $zero_insert_rows = false;
 		public $fail_occurrence_insert = false;
 		public $insert_calls = 0;
+		public $fail_delete = false;
+		public $fail_stats = false;
 
 		public function __construct() {
 			$this->scan = (object) array(
@@ -55,7 +57,8 @@ namespace {
 			return $query;
 		}
 
-		public function get_row( $query ) {
+		public function get_row( $query, $output = null ) {
+			if ( $this->fail_stats ) { return null; }
 			return clone $this->scan;
 		}
 
@@ -84,6 +87,7 @@ namespace {
 
 		public function query( $query ) {
 			$this->queries[] = $query;
+			if ( $this->fail_delete && false !== strpos( $query, 'DELETE FROM' ) ) { return false; }
 			if ( false !== strpos( $query, 'INSERT INTO' ) ) {
 				++$this->insert_calls;
 				if ( 2 === $this->insert_calls && $this->fail_occurrence_insert ) {
@@ -160,6 +164,21 @@ namespace LinkSolva\BrokenLinkChecker {
 		exit( 1 );
 	}
 	$wpdb->fail_occurrence_insert = false;
+
+	$wpdb->fail_stats = true;
+	try {
+		Database::scan_stats( 8 );
+		fwrite( STDERR, "A failed stats query must not report an empty scan.\n" );
+		exit( 1 );
+	} catch ( \RuntimeException $expected ) {}
+	$wpdb->fail_stats = false;
+
+	$wpdb->fail_delete = true;
+	if ( Database::prune_scan_history( 2 ) ) {
+		fwrite( STDERR, "History pruning must report failed deletes.\n" );
+		exit( 1 );
+	}
+	$wpdb->fail_delete = false;
 
 	$before_prune = count( $wpdb->queries );
 	if ( ! Database::prune_scan_history( 2 ) ) {

@@ -52,6 +52,8 @@ final class Installer {
 		wp_clear_scheduled_hook( 'sblc_worker' );
 		delete_option( 'sblc_scan_lock' );
 		delete_option( 'sblc_scan_worker_lock' );
+		delete_option( 'sblc_scan_priority' );
+		delete_option( 'sblc_scan_no_progress' );
 		delete_option( 'sblc_next_scan_at' );
 	}
 

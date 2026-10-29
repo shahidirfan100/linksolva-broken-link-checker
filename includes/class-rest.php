@@ -293,8 +293,8 @@ final class Rest {
 	 *
 	 * @return array|\WP_Error
 	 */
-	public static function scan_start() {
-		return self::response_or_error( Scanner::start() );
+	public static function scan_start( $request ) {
+		return self::response_or_error( Scanner::start( sanitize_key( $request->get_param( 'priority_scope' ) ) ) );
 	}
 
 	/**
@@ -309,7 +309,7 @@ final class Rest {
 			$progress = Scanner::latest_progress();
 			$scan_id  = absint( $progress['scan_id'] );
 		}
-		return self::response_or_error( $scan_id ? Scanner::step( $scan_id ) : Scanner::latest_progress() );
+		return self::response_or_error( $scan_id ? Scanner::step( $scan_id, $request->get_param( 'priority_scope' ) === null ? null : sanitize_key( $request->get_param( 'priority_scope' ) ) ) : Scanner::latest_progress() );
 	}
 
 	/**

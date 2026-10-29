@@ -6,7 +6,7 @@
 namespace {
 	define( 'ABSPATH', __DIR__ . '/' );
 	define( 'WPINC', 'wp-includes' );
-	define( 'LINKSOLVA_BLC_VERSION', '1.0.13' );
+	define( 'LINKSOLVA_BLC_VERSION', '1.0.19' );
 	class WP_HTTP_Requests_Hooks {}
 
 	$GLOBALS['sblc_test_options'] = array(
@@ -113,7 +113,7 @@ namespace LinkSolva\BrokenLinkChecker {
 			);
 		}
 
-		public static function mark_checked( $resource_id, $scan_id ) {}
+		public static function mark_checked( $resource_id, $scan_id ) { return true; }
 
 		public static function save_result( $resource_id, $scan_id, $result ) {
 			self::$saved_results[] = array(
@@ -121,6 +121,7 @@ namespace LinkSolva\BrokenLinkChecker {
 				'scan_id'     => $scan_id,
 				'result'      => $result,
 			);
+			return true;
 		}
 
 		public static function scan_stats( $scan_id ) {
@@ -286,9 +287,8 @@ namespace {
 		'error_message'          => '',
 	);
 	$recovered = $reconcile_method->invoke( null, Database::$scan, true );
-	$recovered_progress = $progress_method->invoke( null, $recovered );
-	if ( 'completed' !== $recovered->state || 100 !== $recovered_progress['percent'] || 2 !== $recovered_progress['stats']['skipped_resources'] || false === strpos( $recovered_progress['message'], '2 URLs could not be verified' ) ) {
-		fwrite( STDERR, "A stalled verification scan did not skip pending URLs and finish with a manual-review count.\n" );
+	if ( 'checking' !== $recovered->state || Database::$skipped_updates !== 0 ) {
+		fwrite( STDERR, "A delayed worker must not skip unchecked URLs.\n" );
 		exit( 1 );
 	}
 

@@ -10,6 +10,8 @@ defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 $sblc_settings = get_option( 'sblc_settings', array() );
 delete_option( 'sblc_scan_lock' );
 delete_option( 'sblc_scan_worker_lock' );
+delete_option( 'sblc_scan_priority' );
+delete_option( 'sblc_scan_no_progress' );
 if ( empty( $sblc_settings['delete_data_on_uninstall'] ) ) {
 	delete_option( 'sblc_next_scan_at' );
 	wp_clear_scheduled_hook( 'sblc_worker' );

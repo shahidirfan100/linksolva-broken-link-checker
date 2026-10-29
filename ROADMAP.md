@@ -42,6 +42,21 @@ The current release already provides much of this baseline: local scans, posts a
 - Adjust worker duration, batch size, and parallel checks to PHP execution-time and memory headroom.
 - Keep CPU-quota behavior conservative because shared hosts do not expose a reliable per-account CPU signal.
 
+## Release 1.0.15 candidate
+
+- Check discovered URLs between source batches and show progress against URLs found so far, noting that the percentage can change as new URLs are discovered.
+- Keep scans resumable when cron is delayed; do not treat inactivity alone as a failed URL.
+- Stop a new scan when the previous completed report cannot be saved and report database failures instead of assuming an empty queue.
+- Add a disposable WordPress/MySQL integration test for a completed scan and failed history save.
+- Release blockers: test the candidate on WordPress, handle interrupted workers with targeted recovery, and bound history snapshots for large sites. Benchmark resource use before performance claims.
+
+## Release 1.0.18 candidate review
+
+- Report database write failures during discovery instead of silently dropping URLs or source locations.
+- PRs #2, #3, and #4 are stacked; the newest branch includes the earlier changes. Validate the complete tree rather than publishing any earlier branch independently.
+- Release blockers remain: recovery after repeated hard PHP termination, bounded and resumable history snapshots, browser-level refresh and live-update coverage, repair and undo smoke tests, and large-site performance measurements with real HTTP traffic.
+- Security review must assess DNS rebinding between address validation and the subsequent network connection, including the parallel Requests path and redirect hops.
+
 ## Priority work for the next product release
 
 ### P0: preserve trust during long scans

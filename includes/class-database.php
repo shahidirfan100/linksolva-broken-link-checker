@@ -45,7 +45,7 @@ final class Database {
 	 * @param string $url          Normalized URL.
 	 * @param string $type         Resource type.
 	 * @param int    $scan_id      Scan ID.
-	 * @return int
+	 * @return int|false
 	 */
 	public static function upsert_resource( $url, $type, $scan_id ) {
 		global $wpdb;
@@ -55,7 +55,10 @@ final class Database {
 		$scope  = Url::scope( $url );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct, uncached access.
 		$existing = $wpdb->get_row( $wpdb->prepare( 'SELECT id, last_scan_id, ignored FROM %i WHERE url_hash = %s LIMIT 1', $tables['resources'], $hash ) );
-		$id       = $existing ? (int) $existing->id : 0;
+		if ( ! empty( $wpdb->last_error ) ) {
+			return false;
+		}
+		$id = $existing ? (int) $existing->id : 0;
 
 		if ( $id ) {
 			$data    = array(
@@ -101,12 +104,12 @@ final class Database {
 				}
 			}
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct access.
-			$wpdb->update( $tables['resources'], $data, array( 'id' => $id ), $formats, array( '%d' ) );
-			return $id;
+			$updated = $wpdb->update( $tables['resources'], $data, array( 'id' => $id ), $formats, array( '%d' ) );
+			return false === $updated ? false : $id;
 		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct access.
-		$wpdb->insert(
+		$inserted = $wpdb->insert(
 			$tables['resources'],
 			array(
 				'url'           => $url,
@@ -123,14 +126,14 @@ final class Database {
 			),
 			array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d' )
 		);
-		return (int) $wpdb->insert_id;
+		return false === $inserted ? false : (int) $wpdb->insert_id;
 	}
 
 	/**
 	 * Add one source occurrence once.
 	 *
 	 * @param array $data Occurrence data.
-	 * @return int
+	 * @return int|false Zero for an existing occurrence, false on database error.
 	 */
 	public static function add_occurrence( $data ) {
 		global $wpdb;
@@ -138,12 +141,15 @@ final class Database {
 		$hash   = hash( 'sha256', wp_json_encode( array( $data['resource_id'], $data['scan_id'], $data['source_type'], $data['source_id'], $data['source_field'], $data['raw_url'], $data['location'], absint( $data['occurrence_index'] ) ) ) );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct, uncached access.
 		$found = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM %i WHERE occurrence_hash = %s LIMIT 1', $tables['occurrences'], $hash ) );
+		if ( ! empty( $wpdb->last_error ) ) {
+			return false;
+		}
 		if ( $found ) {
 			return 0;
 		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct access.
-		$wpdb->insert(
+		$inserted = $wpdb->insert(
 			$tables['occurrences'],
 			array(
 				'resource_id'     => absint( $data['resource_id'] ),
@@ -162,7 +168,7 @@ final class Database {
 			),
 			array( '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
 		);
-		return (int) $wpdb->insert_id;
+		return false === $inserted ? false : (int) $wpdb->insert_id;
 	}
 
 	/**
@@ -212,9 +218,11 @@ final class Database {
 		$tables = self::tables();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Resetting plugin-owned scan state is intentionally direct.
 		$deleted = $wpdb->query( $wpdb->prepare( 'DELETE FROM %i', $tables['occurrences'] ) );
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Resetting plugin-owned scan state is intentionally direct.
-		$wpdb->query( $wpdb->prepare( 'UPDATE %i SET last_scan_id = 0, checked_scan_id = 0', $tables['resources'] ) );
-		return false !== $deleted;
+		if ( false === $deleted ) {
+			return false;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Reset markers so stale URLs are not shown in the new report.
+		return false !== $wpdb->query( $wpdb->prepare( 'UPDATE %i SET last_scan_id = 0, checked_scan_id = 0', $tables['resources'] ) );
 	}
 
 	/**
@@ -256,7 +264,9 @@ final class Database {
 			),
 			ARRAY_A
 		);
-		$stats = is_array( $stats ) ? $stats : array();
+		if ( ! is_array( $stats ) ) {
+			throw new \RuntimeException( 'Could not read scan statistics from the database.' );
+		}
 		return array(
 			'total_resources'   => isset( $stats['total_resources'] ) ? absint( $stats['total_resources'] ) : 0,
 			'checked_resources' => isset( $stats['checked_resources'] ) ? absint( $stats['checked_resources'] ) : 0,
@@ -278,14 +288,16 @@ final class Database {
 
 		$scan_id = absint( $scan_id );
 		$scan    = self::get_scan( $scan_id );
-		if ( ! $scan || 'completed' !== $scan->state ) {
+		if ( ! $scan || ! in_array( $scan->state, array( 'completed', 'cancelled' ), true ) ) {
 			return false;
 		}
 		if ( ! empty( $scan->history_saved ) ) {
 			return true;
 		}
 		$tables = self::tables();
-		self::delete_history_rows( $tables, array( $scan_id ) );
+		if ( ! self::delete_history_rows( $tables, array( $scan_id ) ) ) {
+			return false;
+		}
 
 		// Copy in SQL to avoid loading the site's full findings into PHP memory.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- A completed scan must be snapshotted before the live resource rows are reused.
@@ -336,7 +348,7 @@ final class Database {
 	 */
 	public static function save_latest_scan_history() {
 		$scan = self::get_latest_scan();
-		if ( ! $scan || 'completed' !== $scan->state || ! empty( $scan->history_saved ) ) {
+		if ( ! $scan || ! in_array( $scan->state, array( 'completed', 'cancelled' ), true ) || ! empty( $scan->history_saved ) ) {
 			return false;
 		}
 		return self::save_scan_history( $scan->id );
@@ -355,7 +367,7 @@ final class Database {
 		$tables = self::tables();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Retention is applied to plugin-owned scan records.
 		$saved_ids = $wpdb->get_col(
-			$wpdb->prepare( "SELECT id FROM %i WHERE state = %s AND history_saved = 1 ORDER BY id DESC", $tables['scans'], 'completed' )
+			$wpdb->prepare( "SELECT id FROM %i WHERE state IN (%s, %s) AND history_saved = 1 ORDER BY id DESC", $tables['scans'], 'completed', 'cancelled' )
 		);
 		$saved_ids = array_map( 'absint', is_array( $saved_ids ) ? $saved_ids : array() );
 		$remove_ids = array_slice( $saved_ids, $limit );
@@ -363,7 +375,9 @@ final class Database {
 			return true;
 		}
 
-		self::delete_history_rows( $tables, $remove_ids );
+		if ( ! self::delete_history_rows( $tables, $remove_ids ) ) {
+			return false;
+		}
 		$placeholders = implode( ', ', array_fill( 0, count( $remove_ids ), '%d' ) );
 		$params       = array_merge( array( $tables['scans'] ), $remove_ids );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Each %d maps to a sanitized scan ID, and the table and IDs are prepared.
@@ -386,9 +400,10 @@ final class Database {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- History rows are plugin-owned and should not be served from a stale cache.
 		return $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT id, state, total_sources, processed_sources, discovered_occurrences, checked_resources, counts, started_at, finished_at FROM %i WHERE state = %s AND history_saved = 1 ORDER BY id DESC LIMIT %d",
+				"SELECT id, state, total_sources, processed_sources, discovered_occurrences, checked_resources, counts, started_at, finished_at FROM %i WHERE state IN (%s, %s) AND history_saved = 1 ORDER BY id DESC LIMIT %d",
 				$tables['scans'],
 				'completed',
+				'cancelled',
 				$limit
 			)
 		);
@@ -406,10 +421,11 @@ final class Database {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Validate that the requested saved scan is still retained.
 		return $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT id, state, started_at, finished_at, counts, checked_resources, discovered_occurrences FROM %i WHERE id = %d AND state = %s AND history_saved = 1 LIMIT 1",
+				"SELECT id, state, started_at, finished_at, counts, checked_resources, discovered_occurrences FROM %i WHERE id = %d AND state IN (%s, %s) AND history_saved = 1 LIMIT 1",
 				$tables['scans'],
 				absint( $scan_id ),
-				'completed'
+				'completed',
+				'cancelled'
 			)
 		);
 	}
@@ -490,20 +506,23 @@ final class Database {
 	 *
 	 * @param array $tables   Plugin table names.
 	 * @param array $scan_ids Scan IDs.
-	 * @return void
+	 * @return bool
 	 */
 	private static function delete_history_rows( $tables, $scan_ids ) {
 		global $wpdb;
 		$scan_ids = array_values( array_filter( array_map( 'absint', $scan_ids ) ) );
 		if ( empty( $scan_ids ) ) {
-			return;
+			return true;
 		}
 		$placeholders = implode( ', ', array_fill( 0, count( $scan_ids ), '%d' ) );
 		foreach ( array( 'history_occurrences', 'history_resources' ) as $key ) {
 			$params = array_merge( array( $tables[ $key ] ), $scan_ids );
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Each %d maps to a sanitized scan ID, and the table and IDs are prepared.
-			$wpdb->query( $wpdb->prepare( "DELETE FROM %i WHERE scan_id IN ({$placeholders})", ...$params ) );
+			if ( false === $wpdb->query( $wpdb->prepare( "DELETE FROM %i WHERE scan_id IN ({$placeholders})", ...$params ) ) ) {
+				return false;
+			}
 		}
+		return true;
 	}
 
 	/**
@@ -583,9 +602,13 @@ final class Database {
 	 * @param int $limit   Limit.
 	 * @return array
 	 */
-	public static function resources_for_scan( $scan_id, $limit ) {
+	public static function resources_for_scan( $scan_id, $limit, $scope = 'all' ) {
 		global $wpdb;
 		$table = self::tables()['resources'];
+		if ( in_array( $scope, array( 'internal', 'external' ), true ) ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- The live queue is ordered by the requested scope.
+			return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE last_scan_id = %d AND COALESCE(checked_scan_id, 0) <> %d ORDER BY (link_scope = %s) DESC, id ASC LIMIT %d', $table, absint( $scan_id ), absint( $scan_id ), $scope, absint( $limit ) ) );
+		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Live scan queue must not be cached.
 		return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE last_scan_id = %d AND COALESCE(checked_scan_id, 0) <> %d ORDER BY id ASC LIMIT %d', $table, absint( $scan_id ), absint( $scan_id ), absint( $limit ) ) );
 	}
@@ -770,6 +793,7 @@ final class Database {
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Query fragments are allowlisted above and all values use placeholders.
 		$list_query = $wpdb->prepare( $list_sql, $list_params );
 		return array(
+			'filter_counts' => self::counts( $args ),
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Query is prepared from allowlisted clauses and must not be cached.
 			'total' => (int) $wpdb->get_var( $count_query ),
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Query is prepared from allowlisted clauses and must not be cached.
@@ -836,15 +860,34 @@ final class Database {
 	}
 
 	/**
-	 * Counts for dashboard.
+	 * Count statuses for the dashboard or the selected non-status filters.
 	 *
+	 * @param array $args Optional scope, type and search filters.
 	 * @return array
 	 */
-	public static function counts() {
+	public static function counts( $args = array() ) {
 		global $wpdb;
-		$table = self::tables()['resources'];
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Live dashboard counts must not be cached.
-		$rows = $wpdb->get_results( $wpdb->prepare( 'SELECT status, COUNT(*) AS total FROM %i WHERE last_scan_id > 0 GROUP BY status', $table ), ARRAY_A );
+		$table  = self::tables()['resources'];
+		$where  = array( 'last_scan_id > 0' );
+		$params = array( $table );
+		if ( ! empty( $args['scope'] ) && in_array( $args['scope'], array( 'internal', 'external' ), true ) ) {
+			$where[] = 'link_scope = %s';
+			$params[] = sanitize_key( $args['scope'] );
+		}
+		if ( ! empty( $args['type'] ) && 'all' !== $args['type'] ) {
+			$where[] = 'resource_type = %s';
+			$params[] = sanitize_key( $args['type'] );
+		}
+		if ( ! empty( $args['search'] ) ) {
+			$where[] = 'url LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( sanitize_text_field( $args['search'] ) ) . '%';
+		}
+		$where_sql = implode( ' AND ', $where );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Fixed clauses use separately prepared values and live counts cannot be cached.
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT status, COUNT(*) AS total FROM %i WHERE {$where_sql} GROUP BY status", $params ), ARRAY_A );
+		if ( ! is_array( $rows ) ) {
+			throw new \RuntimeException( 'Could not read finding counts from the database.' );
+		}
 		$out  = array(
 			'all'          => 0,
 			'broken'       => 0,
