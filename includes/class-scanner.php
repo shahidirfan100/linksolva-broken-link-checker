@@ -13,8 +13,10 @@ defined( 'ABSPATH' ) || exit;
  * Runs resumable discovery and URL verification work.
  */
 final class Scanner {
-	const LOCK_OPTION        = 'sblc_scan_lock';
-	const WORKER_LOCK_OPTION = 'sblc_scan_worker_lock';
+	const LOCK_OPTION          = 'sblc_scan_lock';
+	const WORKER_LOCK_OPTION   = 'sblc_scan_worker_lock';
+	const WORKER_STALE_SECONDS = 60;
+	const SCAN_STALE_SECONDS   = 90;
 
 	/**
 	 * Start a new scan.
@@ -24,7 +26,10 @@ final class Scanner {
 	public static function start() {
 		$active = Database::get_active_scan();
 		if ( $active ) {
-			return new \WP_Error( 'sblc_scan_active', __( 'A scan is already in progress.', 'linksolva-broken-link-checker' ), array( 'status' => 409 ) );
+			self::reconcile_scan( $active );
+			if ( Database::get_active_scan() ) {
+				return new \WP_Error( 'sblc_scan_active', __( 'A scan is already in progress.', 'linksolva-broken-link-checker' ), array( 'status' => 409 ) );
+			}
 		}
 		if ( ! self::acquire_lock() ) {
 			return new \WP_Error( 'sblc_scan_locked', __( 'Another scan request is being started. Please try again.', 'linksolva-broken-link-checker' ), array( 'status' => 409 ) );
@@ -85,6 +90,10 @@ final class Scanner {
 			self::release_lock();
 			return self::progress( Database::get_scan( $scan_id ) );
 		}
+		$scan = self::reconcile_scan( $scan, true );
+		if ( ! $scan || in_array( $scan->state, array( 'completed', 'cancelled', 'failed' ), true ) ) {
+			return self::progress( $scan );
+		}
 
 		$limits   = Settings::worker_limits();
 		$deadline = microtime( true ) + $limits['execution_seconds'];
@@ -107,27 +116,9 @@ final class Scanner {
 			if ( $scan && ( 'checking' === $scan->state || ( 'discovering' === $scan->state && ! empty( $pending ) ) ) && microtime( true ) < $deadline ) {
 				self::check_resources( $scan, $deadline );
 			}
-			$scan  = Database::get_scan( $scan_id );
-			$stats = $scan ? Database::scan_stats( $scan_id ) : array(
-				'total_resources'   => 0,
-				'checked_resources' => 0,
-				'skipped_resources' => 0,
-			);
-			if ( $scan && 'checking' === $scan->state && $stats['checked_resources'] >= $stats['total_resources'] ) {
-				Database::update_scan(
-					$scan_id,
-					array(
-						'state'       => 'completed',
-						'finished_at' => Database::now(),
-						'counts'      => wp_json_encode( Database::counts() ),
-					)
-				);
-				self::notify_if_enabled( $scan_id );
-				self::schedule_next();
-				self::release_lock();
-				$scan = Database::get_scan( $scan_id );
-			}
-			if ( $scan ) {
+			$scan = Database::get_scan( $scan_id );
+			$scan = self::reconcile_scan( $scan, true );
+			if ( $scan && in_array( $scan->state, array( 'discovering', 'checking', 'cancelling' ), true ) ) {
 				self::touch_lock( $scan_id );
 			}
 			return self::progress( $scan );
@@ -198,7 +189,130 @@ final class Scanner {
 		if ( ! $scan ) {
 			$scan = Database::get_latest_scan();
 		}
+		if ( $scan ) {
+			$scan = self::reconcile_scan( $scan );
+		}
 		return self::progress( $scan );
+	}
+
+	/**
+	 * Finalize completed work and recover scans abandoned by a terminated worker.
+	 *
+	 * @param object|null $scan             Scan row.
+	 * @param bool        $worker_lock_held Whether this request already owns the worker lock.
+	 * @return object|null
+	 */
+	private static function reconcile_scan( $scan, $worker_lock_held = false ) {
+		if ( ! $scan || ! in_array( $scan->state, array( 'discovering', 'checking', 'cancelling' ), true ) ) {
+			return $scan;
+		}
+
+		$stats    = Database::scan_stats( $scan->id );
+		$drained  = 'checking' === $scan->state && $stats['checked_resources'] >= $stats['total_resources'];
+		$stalled  = self::scan_is_stalled( $scan );
+		if ( ! $drained && ! $stalled ) {
+			return $scan;
+		}
+
+		$worker_lock = false;
+		if ( ! $worker_lock_held ) {
+			$worker_lock = self::acquire_worker_lock();
+			if ( ! $worker_lock ) {
+				return $scan;
+			}
+		}
+
+		try {
+			$scan = Database::get_scan( $scan->id );
+			if ( ! $scan || ! in_array( $scan->state, array( 'discovering', 'checking', 'cancelling' ), true ) ) {
+				return $scan;
+			}
+			$stats = Database::scan_stats( $scan->id );
+			if ( 'checking' === $scan->state && $stats['checked_resources'] >= $stats['total_resources'] ) {
+				return self::complete_scan( $scan->id, $stats );
+			}
+			if ( ! self::scan_is_stalled( $scan ) ) {
+				return $scan;
+			}
+			if ( 'cancelling' === $scan->state ) {
+				Database::update_scan( $scan->id, array( 'state' => 'cancelled', 'finished_at' => Database::now() ) );
+				self::schedule_next();
+				self::release_lock();
+				return Database::get_scan( $scan->id );
+			}
+			if ( 'discovering' !== $scan->state ) {
+				$skipped = Database::skip_pending_resources( $scan->id );
+				if ( false === $skipped ) {
+					return self::fail_stalled_scan( $scan->id, __( 'The scan could not save its remaining URL results. Review the report and run another scan.', 'linksolva-broken-link-checker' ) );
+				}
+				$stats = Database::scan_stats( $scan->id );
+				if ( $stats['checked_resources'] >= $stats['total_resources'] ) {
+					return self::complete_scan( $scan->id, $stats );
+				}
+				return self::fail_stalled_scan( $scan->id, __( 'The scan stopped because some URLs could not be recorded. Review the report and run another scan.', 'linksolva-broken-link-checker' ) );
+			}
+
+			return self::fail_stalled_scan( $scan->id, __( 'The scan stopped during source discovery because the worker stopped responding. Its report may be incomplete; start a new scan to continue.', 'linksolva-broken-link-checker' ) );
+		} finally {
+			if ( $worker_lock ) {
+				self::release_worker_lock( $worker_lock );
+			}
+		}
+	}
+
+	/**
+	 * Check whether an active scan has stopped recording work for too long.
+	 *
+	 * @param object $scan Scan row.
+	 * @return bool
+	 */
+	private static function scan_is_stalled( $scan ) {
+		$updated_at = isset( $scan->updated_at ) ? strtotime( $scan->updated_at . ' UTC' ) : false;
+		return $updated_at && $updated_at <= time() - self::SCAN_STALE_SECONDS;
+	}
+
+	/**
+	 * Mark a fully checked scan completed.
+	 *
+	 * @param int   $scan_id Scan ID.
+	 * @param array $stats   Scan statistics.
+	 * @return object|null
+	 */
+	private static function complete_scan( $scan_id, $stats ) {
+		Database::update_scan(
+			$scan_id,
+			array(
+				'state'             => 'completed',
+				'checked_resources' => absint( $stats['checked_resources'] ),
+				'finished_at'       => Database::now(),
+				'counts'            => wp_json_encode( Database::counts() ),
+			)
+		);
+		self::notify_if_enabled( $scan_id );
+		self::schedule_next();
+		self::release_lock();
+		return Database::get_scan( $scan_id );
+	}
+
+	/**
+	 * Stop an unrecoverable scan with a visible explanation.
+	 *
+	 * @param int    $scan_id Scan ID.
+	 * @param string $message Failure explanation.
+	 * @return object|null
+	 */
+	private static function fail_stalled_scan( $scan_id, $message ) {
+		Database::update_scan(
+			$scan_id,
+			array(
+				'state'         => 'failed',
+				'error_message' => sanitize_text_field( $message ),
+				'finished_at'   => Database::now(),
+			)
+		);
+		self::schedule_next();
+		self::release_lock();
+		return Database::get_scan( $scan_id );
 	}
 
 	/**
@@ -256,16 +370,19 @@ final class Scanner {
 			);
 			return;
 		}
-		Database::update_scan(
-			$scan->id,
-			array(
-				'provider'               => $provider,
-				'page'                   => $page,
-				'resource_cursor'        => $offset,
-				'processed_sources'      => $processed,
-				'discovered_occurrences' => $occurrences,
-			)
-		);
+		$progress_changed = $provider !== $scan->provider || $page !== absint( $scan->page ) || $offset !== absint( $scan->resource_cursor ) || $processed !== absint( $scan->processed_sources ) || $occurrences !== absint( $scan->discovered_occurrences );
+		if ( $progress_changed ) {
+			Database::update_scan(
+				$scan->id,
+				array(
+					'provider'               => $provider,
+					'page'                   => $page,
+					'resource_cursor'        => $offset,
+					'processed_sources'      => $processed,
+					'discovered_occurrences' => $occurrences,
+				)
+			);
+		}
 	}
 
 	/**
@@ -306,7 +423,9 @@ final class Scanner {
 			}
 		}
 		$stats = Database::scan_stats( $scan->id );
-		Database::update_scan( $scan->id, array( 'checked_resources' => $stats['checked_resources'] ) );
+		if ( $stats['checked_resources'] > absint( $scan->checked_resources ) ) {
+			Database::update_scan( $scan->id, array( 'checked_resources' => $stats['checked_resources'] ) );
+		}
 	}
 
 	/**
@@ -355,16 +474,18 @@ final class Scanner {
 			$skipped = absint( $stats['skipped_resources'] );
 			$message = $skipped
 				? sprintf(
-					/* translators: %d: URLs that timed out or reached the worker time limit. */
+					/* translators: %d: URLs skipped because they could not be verified. */
 					_n(
-						'Scan completed. %d URL timed out or reached the worker time limit and needs manual review.',
-						'Scan completed. %d URLs timed out or reached the worker time limit and need manual review.',
+						'Scan completed. %d URL could not be verified and needs manual review.',
+						'Scan completed. %d URLs could not be verified and need manual review.',
 						$skipped,
 						'linksolva-broken-link-checker'
 					),
 					$skipped
 				)
 				: __( 'Scan completed.', 'linksolva-broken-link-checker' );
+		} elseif ( 'failed' === $scan->state && ! empty( $scan->error_message ) ) {
+			$message = sanitize_text_field( $scan->error_message );
 		} else {
 			$message = __( 'Scan stopped.', 'linksolva-broken-link-checker' );
 		}
@@ -424,7 +545,7 @@ final class Scanner {
 		}
 
 		$old = get_option( self::WORKER_LOCK_OPTION, array() );
-		if ( is_array( $old ) && ! empty( $old['locked_at'] ) && time() - absint( $old['locked_at'] ) < 120 ) {
+		if ( is_array( $old ) && ! empty( $old['locked_at'] ) && time() - absint( $old['locked_at'] ) < self::WORKER_STALE_SECONDS ) {
 			return false;
 		}
 
