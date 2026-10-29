@@ -32,6 +32,15 @@ namespace {
 		return isset( $GLOBALS['sblc_test_options'][ $name ] ) ? $GLOBALS['sblc_test_options'][ $name ] : $default;
 	}
 
+	function delete_option( $name ) {
+		unset( $GLOBALS['sblc_test_options'][ $name ] );
+		return true;
+	}
+
+	function wp_json_encode( $value ) {
+		return json_encode( $value );
+	}
+
 	function wp_parse_args( $args, $defaults = array() ) {
 		return array_merge( $defaults, is_array( $args ) ? $args : array() );
 	}
@@ -89,6 +98,8 @@ namespace LinkSolva\BrokenLinkChecker {
 		public static $saved_results = array();
 		public static $updates = array();
 		public static $stats_override = null;
+		public static $scan = null;
+		public static $skipped_updates = 0;
 
 		public static function resources_for_scan( $scan_id, $limit ) {
 			return array(
@@ -124,6 +135,30 @@ namespace LinkSolva\BrokenLinkChecker {
 
 		public static function update_scan( $scan_id, $data ) {
 			self::$updates[] = $data;
+			if ( self::$scan && (int) self::$scan->id === (int) $scan_id ) {
+				foreach ( $data as $key => $value ) {
+					self::$scan->{$key} = $value;
+				}
+			}
+		}
+
+		public static function get_scan( $scan_id ) {
+			return self::$scan && (int) self::$scan->id === (int) $scan_id ? self::$scan : null;
+		}
+
+		public static function skip_pending_resources( $scan_id ) {
+			if ( ! is_array( self::$stats_override ) ) {
+				return false;
+			}
+			$pending = self::$stats_override['total_resources'] - self::$stats_override['checked_resources'];
+			self::$skipped_updates += $pending;
+			self::$stats_override['checked_resources'] = self::$stats_override['total_resources'];
+			self::$stats_override['skipped_resources'] += $pending;
+			return $pending;
+		}
+
+		public static function now() {
+			return gmdate( 'Y-m-d H:i:s' );
 		}
 
 		public static function counts() {
@@ -223,5 +258,50 @@ namespace {
 		exit( 1 );
 	}
 
-	echo "Scan time-limit regression check passed.\n";
+	$reconcile_method = new \ReflectionMethod( Scanner::class, 'reconcile_scan' );
+	$reconcile_method->setAccessible( true );
+	Database::$stats_override = array(
+		'total_resources'   => 3,
+		'checked_resources' => 1,
+		'skipped_resources' => 0,
+	);
+	Database::$scan = (object) array(
+		'id'                     => 9,
+		'state'                  => 'checking',
+		'updated_at'             => gmdate( 'Y-m-d H:i:s', time() - 120 ),
+		'counts'                 => '{}',
+		'checked_resources'      => 1,
+		'processed_sources'      => 3,
+		'discovered_occurrences' => 3,
+		'error_message'          => '',
+	);
+	$recovered = $reconcile_method->invoke( null, Database::$scan, true );
+	$recovered_progress = $progress_method->invoke( null, $recovered );
+	if ( 'completed' !== $recovered->state || 100 !== $recovered_progress['percent'] || 2 !== $recovered_progress['stats']['skipped_resources'] || false === strpos( $recovered_progress['message'], '2 URLs could not be verified' ) ) {
+		fwrite( STDERR, "A stalled verification scan did not skip pending URLs and finish with a manual-review count.\n" );
+		exit( 1 );
+	}
+
+	Database::$stats_override = array(
+		'total_resources'   => 3,
+		'checked_resources' => 3,
+		'skipped_resources' => 0,
+	);
+	Database::$scan = (object) array(
+		'id'                     => 10,
+		'state'                  => 'checking',
+		'updated_at'             => gmdate( 'Y-m-d H:i:s' ),
+		'counts'                 => '{}',
+		'checked_resources'      => 3,
+		'processed_sources'      => 3,
+		'discovered_occurrences' => 3,
+		'error_message'          => '',
+	);
+	$completed = $reconcile_method->invoke( null, Database::$scan, true );
+	if ( 'completed' !== $completed->state ) {
+		fwrite( STDERR, "A scan with all URLs checked did not transition to completed.\n" );
+		exit( 1 );
+	}
+
+	echo "Scan progress, timeout recovery, and completion regression checks passed.\n";
 }
