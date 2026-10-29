@@ -551,6 +551,10 @@ msgstr ""
 msgid "Scan started. Discovery and verification will run in small bounded requests."
 msgstr ""
 
+#: assets/js/admin.js
+msgid "The scan status request timed out."
+msgstr ""
+
 #: admin/class-admin.php:174
 msgid "Select resources and a bulk action first."
 msgstr ""
