@@ -282,7 +282,7 @@ final class Database {
 
 		$scan_id = absint( $scan_id );
 		$scan    = self::get_scan( $scan_id );
-		if ( ! $scan || 'completed' !== $scan->state ) {
+		if ( ! $scan || ! in_array( $scan->state, array( 'completed', 'cancelled' ), true ) ) {
 			return false;
 		}
 		if ( ! empty( $scan->history_saved ) ) {
@@ -342,7 +342,7 @@ final class Database {
 	 */
 	public static function save_latest_scan_history() {
 		$scan = self::get_latest_scan();
-		if ( ! $scan || 'completed' !== $scan->state || ! empty( $scan->history_saved ) ) {
+		if ( ! $scan || ! in_array( $scan->state, array( 'completed', 'cancelled' ), true ) || ! empty( $scan->history_saved ) ) {
 			return false;
 		}
 		return self::save_scan_history( $scan->id );
@@ -361,7 +361,7 @@ final class Database {
 		$tables = self::tables();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Retention is applied to plugin-owned scan records.
 		$saved_ids = $wpdb->get_col(
-			$wpdb->prepare( "SELECT id FROM %i WHERE state = %s AND history_saved = 1 ORDER BY id DESC", $tables['scans'], 'completed' )
+			$wpdb->prepare( "SELECT id FROM %i WHERE state IN (%s, %s) AND history_saved = 1 ORDER BY id DESC", $tables['scans'], 'completed', 'cancelled' )
 		);
 		$saved_ids = array_map( 'absint', is_array( $saved_ids ) ? $saved_ids : array() );
 		$remove_ids = array_slice( $saved_ids, $limit );
@@ -394,9 +394,10 @@ final class Database {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- History rows are plugin-owned and should not be served from a stale cache.
 		return $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT id, state, total_sources, processed_sources, discovered_occurrences, checked_resources, counts, started_at, finished_at FROM %i WHERE state = %s AND history_saved = 1 ORDER BY id DESC LIMIT %d",
+				"SELECT id, state, total_sources, processed_sources, discovered_occurrences, checked_resources, counts, started_at, finished_at FROM %i WHERE state IN (%s, %s) AND history_saved = 1 ORDER BY id DESC LIMIT %d",
 				$tables['scans'],
 				'completed',
+				'cancelled',
 				$limit
 			)
 		);
@@ -414,10 +415,11 @@ final class Database {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Validate that the requested saved scan is still retained.
 		return $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT id, state, started_at, finished_at, counts, checked_resources, discovered_occurrences FROM %i WHERE id = %d AND state = %s AND history_saved = 1 LIMIT 1",
+				"SELECT id, state, started_at, finished_at, counts, checked_resources, discovered_occurrences FROM %i WHERE id = %d AND state IN (%s, %s) AND history_saved = 1 LIMIT 1",
 				$tables['scans'],
 				absint( $scan_id ),
-				'completed'
+				'completed',
+				'cancelled'
 			)
 		);
 	}
@@ -594,9 +596,13 @@ final class Database {
 	 * @param int $limit   Limit.
 	 * @return array
 	 */
-	public static function resources_for_scan( $scan_id, $limit ) {
+	public static function resources_for_scan( $scan_id, $limit, $scope = 'all' ) {
 		global $wpdb;
 		$table = self::tables()['resources'];
+		if ( in_array( $scope, array( 'internal', 'external' ), true ) ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- The live queue is ordered by the requested scope.
+			return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE last_scan_id = %d AND COALESCE(checked_scan_id, 0) <> %d ORDER BY (link_scope = %s) DESC, id ASC LIMIT %d', $table, absint( $scan_id ), absint( $scan_id ), $scope, absint( $limit ) ) );
+		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Live scan queue must not be cached.
 		return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE last_scan_id = %d AND COALESCE(checked_scan_id, 0) <> %d ORDER BY id ASC LIMIT %d', $table, absint( $scan_id ), absint( $scan_id ), absint( $limit ) ) );
 	}

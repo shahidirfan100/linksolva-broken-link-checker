@@ -28,7 +28,7 @@ The plugin classifies results instead of treating every failed request as a dead
 
 Every result includes request history, redirect chain, response time, confidence, explanation, and source locations.
 
-Completed scan results can be kept locally for later review. Choose to retain 5, 10, or 25 runs, or turn history off. Saved runs include their URL results and source locations; the oldest saved run is removed when the selected limit is exceeded. On upgrade, the latest completed run is saved from the findings still stored by the plugin. Results overwritten by earlier scans cannot be restored.
+Completed and stopped scan results can be kept locally for later review. Choose to retain 5, 10, or 25 runs, or turn history off. Saved runs include their URL results and source locations; stopped runs are marked incomplete. The oldest saved run is removed when the selected limit is exceeded. On upgrade, the latest completed run is saved from the findings still stored by the plugin. Results overwritten by earlier scans cannot be restored.
 
 ### Local by design
 
@@ -107,6 +107,8 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 
 = 1.0.16 =
 * Align status filter counts with the selected link scope, type, and search, and add a clear-filters control.
+* Prioritize the selected internal or external URLs in the scan queue.
+* Save stopped scans in history as incomplete when scan history is enabled.
 * Bound the time spent waiting for the live findings request.
 
 = 1.0.15 =

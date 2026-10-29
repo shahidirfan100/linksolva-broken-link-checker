@@ -15,6 +15,7 @@ defined( 'ABSPATH' ) || exit;
 final class Scanner {
 	const LOCK_OPTION          = 'sblc_scan_lock';
 	const WORKER_LOCK_OPTION   = 'sblc_scan_worker_lock';
+	const PRIORITY_OPTION      = 'sblc_scan_priority';
 	const WORKER_STALE_SECONDS = 60;
 
 	/**
@@ -22,7 +23,7 @@ final class Scanner {
 	 *
 	 * @return array|\WP_Error
 	 */
-	public static function start() {
+	public static function start( $priority = 'all' ) {
 		$active = Database::get_active_scan();
 		if ( $active ) {
 			self::reconcile_scan( $active );
@@ -35,7 +36,7 @@ final class Scanner {
 		}
 		if ( Settings::get( 'scan_history_limit', 5 ) > 0 ) {
 			$latest = Database::get_latest_scan();
-			if ( $latest && 'completed' === $latest->state && empty( $latest->history_saved ) && ! Database::save_scan_history( $latest->id ) ) {
+			if ( $latest && in_array( $latest->state, array( 'completed', 'cancelled' ), true ) && empty( $latest->history_saved ) && ! Database::save_scan_history( $latest->id ) ) {
 				self::release_lock();
 				return new \WP_Error( 'sblc_history_save_failed', __( 'The previous scan could not be saved. No new scan was started; check database space and try again.', 'linksolva-broken-link-checker' ), array( 'status' => 500 ) );
 			}
@@ -50,7 +51,7 @@ final class Scanner {
 			return new \WP_Error( 'sblc_scan_create_failed', __( 'The scan could not be created.', 'linksolva-broken-link-checker' ), array( 'status' => 500 ) );
 		}
 		self::set_lock_scan( $scan_id );
-		return self::step( $scan_id );
+		return self::step( $scan_id, $priority );
 	}
 
 	/**
@@ -59,7 +60,11 @@ final class Scanner {
 	 * @param int $scan_id Scan ID.
 	 * @return array|\WP_Error
 	 */
-	public static function step( $scan_id ) {
+	public static function step( $scan_id, $priority = null ) {
+		if ( null !== $priority ) {
+			$priority = in_array( $priority, array( 'internal', 'external' ), true ) ? $priority : 'all';
+			update_option( self::PRIORITY_OPTION, array( 'scan_id' => absint( $scan_id ), 'scope' => $priority ), false );
+		}
 		$worker_lock = self::acquire_worker_lock();
 		if ( ! $worker_lock ) {
 			$scan = Database::get_scan( $scan_id );
@@ -67,7 +72,9 @@ final class Scanner {
 		}
 
 		try {
-			return self::process_step( $scan_id );
+			$choice = get_option( self::PRIORITY_OPTION, array() );
+			$scope = is_array( $choice ) && isset( $choice['scan_id'], $choice['scope'] ) && absint( $choice['scan_id'] ) === absint( $scan_id ) && in_array( $choice['scope'], array( 'internal', 'external' ), true ) ? $choice['scope'] : 'all';
+			return self::process_step( $scan_id, $scope );
 		} finally {
 			self::release_worker_lock( $worker_lock );
 		}
@@ -79,7 +86,7 @@ final class Scanner {
 	 * @param int $scan_id Scan ID.
 	 * @return array|\WP_Error
 	 */
-	private static function process_step( $scan_id ) {
+	private static function process_step( $scan_id, $scope = 'all' ) {
 		$scan = Database::get_scan( $scan_id );
 		if ( ! $scan ) {
 			return new \WP_Error( 'sblc_scan_missing', __( 'The requested scan was not found.', 'linksolva-broken-link-checker' ), array( 'status' => 404 ) );
@@ -93,8 +100,12 @@ final class Scanner {
 				array(
 					'state'       => 'cancelled',
 					'finished_at' => Database::now(),
+					'counts'      => wp_json_encode( Database::counts() ),
 				)
 			);
+			if ( Settings::get( 'scan_history_limit', 5 ) > 0 && Database::save_scan_history( $scan_id ) ) {
+				Database::prune_scan_history();
+			}
 			self::schedule_next();
 			self::release_lock();
 			return self::progress( Database::get_scan( $scan_id ) );
@@ -118,7 +129,7 @@ final class Scanner {
 			}
 			$scan = Database::get_scan( $scan_id );
 			if ( $scan && in_array( $scan->state, array( 'discovering', 'checking' ), true ) && microtime( true ) < $deadline ) {
-				self::check_resources( $scan, $deadline );
+				self::check_resources( $scan, $deadline, $scope );
 			}
 			$scan = Database::get_scan( $scan_id );
 			$scan = self::reconcile_scan( $scan, true );
@@ -150,6 +161,9 @@ final class Scanner {
 		$scan = Database::get_scan( $scan_id );
 		if ( ! $scan ) {
 			return new \WP_Error( 'sblc_scan_missing', __( 'The requested scan was not found.', 'linksolva-broken-link-checker' ), array( 'status' => 404 ) );
+		}
+		if ( ! in_array( $scan->state, array( 'discovering', 'checking', 'cancelling' ), true ) ) {
+			return self::progress( $scan );
 		}
 		Database::update_scan( $scan_id, array( 'state' => 'cancelling' ) );
 		return self::step( $scan_id );
@@ -364,9 +378,9 @@ final class Scanner {
 	 * @param float  $deadline Deadline.
 	 * @return void
 	 */
-	private static function check_resources( $scan, $deadline ) {
+	private static function check_resources( $scan, $deadline, $scope = 'all' ) {
 		$limits    = Settings::worker_limits();
-		$resources = Database::resources_for_scan( $scan->id, $limits['batch_size'] );
+		$resources = Database::resources_for_scan( $scan->id, $limits['batch_size'], $scope );
 		$parallel  = $limits['parallel_requests'];
 		$chunks    = array_chunk( $resources, $parallel );
 		foreach ( $chunks as $chunk ) {
@@ -458,7 +472,10 @@ final class Scanner {
 		} else {
 			$message = __( 'Scan stopped.', 'linksolva-broken-link-checker' );
 		}
+		$priority = get_option( self::PRIORITY_OPTION, array() );
+		$scope = is_array( $priority ) && isset( $priority['scan_id'], $priority['scope'] ) && absint( $priority['scan_id'] ) === absint( $scan->id ) && in_array( $priority['scope'], array( 'internal', 'external' ), true ) ? $priority['scope'] : 'all';
 		return array(
+			'priority_scope'          => $scope,
 			'scan_id'                => absint( $scan->id ),
 			'state'                  => sanitize_key( $scan->state ),
 			'phase'                  => $phase,

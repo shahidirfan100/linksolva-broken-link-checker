@@ -1037,7 +1037,7 @@ msgid "Scan history"
 msgstr ""
 
 #: admin/class-admin.php
-msgid "Completed scans to keep"
+msgid "Scans to keep"
 msgstr ""
 
 #: admin/class-admin.php
@@ -1057,15 +1057,15 @@ msgid "25 scans"
 msgstr ""
 
 #: admin/class-admin.php
-msgid "Save completed URL results and source locations on this site. Lowering the limit removes the oldest saved runs."
+msgid "Save completed and stopped scans, including URL results and source locations. Lowering the limit removes the oldest saved runs."
 msgstr ""
 
 #: admin/class-admin.php
-msgid "No completed scans have been saved yet."
+msgid "No scans have been saved yet."
 msgstr ""
 
 #: admin/class-admin.php
-msgid "Review results saved from completed scans."
+msgid "Review results saved from completed and stopped scans."
 msgstr ""
 
 #: admin/class-admin.php
@@ -1097,7 +1097,7 @@ msgid "Back to scan history"
 msgstr ""
 
 #: admin/class-admin.php
-msgid "Saved URL results from this completed run."
+msgid "Saved URL results from this run."
 msgstr ""
 
 #: admin/class-admin.php
@@ -1113,7 +1113,7 @@ msgid "No source locations were saved for this URL."
 msgstr ""
 
 #: admin/class-admin.php
-msgid "Scan history is off. Enable it in Settings to save future completed runs."
+msgid "Scan history is off. Enable it in Settings to save future runs."
 msgstr ""
 
 #: admin/class-admin.php
@@ -1149,5 +1149,13 @@ msgid "Clear filters"
 msgstr ""
 
 #: admin/class-admin.php
-msgid "Findings are grouped by URL, with every source location retained. Summary totals include all links; status filters reflect the selected scope, type and search."
+msgid "Summary totals include all links; status filters follow scope, type and search. During a scan, the selected scope is checked first, then other links."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Complete"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Incomplete"
 msgstr ""
