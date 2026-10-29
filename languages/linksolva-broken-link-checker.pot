@@ -172,7 +172,7 @@ msgid "Timeout"
 msgstr ""
 
 #: admin/class-admin.php:82
-msgid "One request per unique URL, with every source location retained."
+msgid "Findings are grouped by URL, with every source location retained."
 msgstr ""
 
 #: admin/class-admin.php:83
@@ -919,7 +919,7 @@ msgid "The requested scan was not found."
 msgstr ""
 
 #: includes/class-scanner.php:142
-msgid "The scan stopped unexpectedly. Existing findings were preserved."
+msgid "The scan stopped unexpectedly. The current report may be incomplete; run another scan to rebuild it."
 msgstr ""
 
 #: includes/class-scanner.php:321

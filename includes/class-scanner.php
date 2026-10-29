@@ -139,7 +139,7 @@ final class Scanner {
 				)
 			);
 			self::release_lock();
-			return new \WP_Error( 'sblc_scan_failed', __( 'The scan stopped unexpectedly. Existing findings were preserved.', 'linksolva-broken-link-checker' ), array( 'status' => 500 ) );
+			return new \WP_Error( 'sblc_scan_failed', __( 'The scan stopped unexpectedly. The current report may be incomplete; run another scan to rebuild it.', 'linksolva-broken-link-checker' ), array( 'status' => 500 ) );
 		}
 	}
 
