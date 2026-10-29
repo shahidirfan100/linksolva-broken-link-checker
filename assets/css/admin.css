@@ -1,4 +1,3 @@
-/* LinkSolva — restrained, data-first admin UI. */
 .sblc-wrap {
 	--sblc-ink: #18211f;
 	--sblc-ink-soft: #53615d;
@@ -51,6 +50,7 @@
 .sblc-input:focus-visible,
 .sblc-select:focus-visible,
 .sblc-icon-button:focus-visible { outline: 3px solid rgba(15, 118, 110, .35); outline-offset: 2px; }
+.sblc-close:focus-visible { outline: 3px solid rgba(15, 118, 110, .35); outline-offset: 2px; }
 .sblc-nav a.is-active { color: var(--sblc-teal-dark); border-color: var(--sblc-teal); }
 
 .sblc-main { margin-top: 18px; }

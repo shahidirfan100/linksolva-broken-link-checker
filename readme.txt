@@ -4,7 +4,7 @@ Tags: broken links, link checker, broken images, redirects, local scanner
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.10
+Stable tag: 1.0.11
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -14,17 +14,17 @@ Find broken links, redirects, and missing images locally with evidence, safe ret
 
 LinkSolva - Broken Link Checker is a local WordPress tool for administrators who need to know what is genuinely broken before changing content.
 
-It discovers URLs in public posts, pages, public custom post types, approved comments, custom navigation menus, featured images, and optionally scalar custom-field or page-builder data. It stores each unique URL separately from the places where it appears, so the same destination is verified once while all source locations remain available.
+It discovers URLs in public posts, pages, public custom post types, approved comments, custom navigation menus, featured images, and optionally scalar custom-field or page-builder data. Findings are grouped by normalized URL, and every matching source location is retained. A check may make more than one HTTP request when it follows redirects or needs a limited GET fallback after HEAD.
 
 The plugin classifies results instead of treating every failed request as a dead link:
 
-* **Healthy** — a successful response was received.
-* **Redirect** — the destination works but reaches another URL.
-* **Broken** — HTTP 404 or 410 provides strong evidence that the destination no longer exists.
-* **Blocked** — the destination rejected automated verification, such as HTTP 401 or 403.
-* **Rate Limited** — the destination returned HTTP 429 and should be checked later.
-* **Temporary Error** — the destination returned a 5xx response.
-* **SSL Error, DNS Error, Timeout, or Unverified** — the scanner could not establish enough evidence to call the URL broken.
+* **Healthy:** a successful response was received.
+* **Redirect:** the destination works but reaches another URL.
+* **Broken:** HTTP 404 or 410 provides strong evidence that the destination no longer exists.
+* **Blocked:** the destination rejected automated verification, such as HTTP 401 or 403.
+* **Rate Limited:** the destination returned HTTP 429 and should be checked later.
+* **Temporary Error:** the destination returned a 5xx response.
+* **SSL Error, DNS Error, Timeout, or Unverified:** the scanner could not establish enough evidence to call the URL broken.
 
 Every result includes request history, redirect chain, response time, confidence, explanation, and source locations.
 
@@ -98,6 +98,11 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 
 == Changelog ==
 
+= 1.0.11 =
+* Added WordPress Plugin Check and PHP syntax checks to GitHub Actions.
+* Reduced scan polling frequency and improved keyboard operation of the evidence drawer.
+* Clarified request-count, concurrency, and interrupted-scan messages.
+
 = 1.0.10 =
 * Updated the plugin name, directory slug, translation domain, and matching directory graphics for the WordPress.org resubmission.
 
@@ -158,6 +163,9 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * Added evidence-based HTTP classifications, URL deduplication, bounded scanning, safe repairs, and conflict-aware undo.
 
 == Upgrade Notice ==
+
+= 1.0.11 =
+The admin scan monitor now makes fewer polling requests. The evidence drawer supports Escape and keeps keyboard focus inside while open.
 
 = 1.0.10 =
 The plugin now uses the LinkSolva brand and its matching WordPress.org directory slug.
