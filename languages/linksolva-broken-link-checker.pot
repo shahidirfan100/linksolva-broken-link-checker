@@ -2,7 +2,7 @@
 # This file is distributed under the GPLv2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.10\n"
+"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.12\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/linksolva-broken-link-checker\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -311,8 +311,12 @@ msgstr ""
 msgid "Resources per worker request"
 msgstr ""
 
-#: admin/class-admin.php:118
-msgid "Small batches keep wp-admin responsive."
+#: admin/class-admin.php:120
+msgid "The worker caps this at ten and lowers it when PHP memory is tight."
+msgstr ""
+
+#: admin/class-admin.php:121
+msgid "The worker caps this at four and lowers it when PHP memory is tight."
 msgstr ""
 
 #: admin/class-admin.php:119
@@ -635,6 +639,14 @@ msgstr ""
 msgid "This URL was not requested because it failed the local safety checks."
 msgstr ""
 
+#: includes/class-http-checker.php:164
+msgid "Skipped for review"
+msgstr ""
+
+#: includes/class-http-checker.php:165
+msgid "This URL was skipped because the worker reached its time limit before verification finished. Review it manually or select Recheck to try again."
+msgstr ""
+
 #: includes/class-http-checker.php:204
 msgid "Verification deferred"
 msgstr ""
@@ -944,6 +956,13 @@ msgstr ""
 msgid "Scan completed."
 msgstr ""
 
+#: includes/class-scanner.php:358
+#, php-format
+msgid "Scan completed. %d URL timed out or reached the worker time limit and needs manual review."
+msgid_plural "Scan completed. %d URLs timed out or reached the worker time limit and need manual review."
+msgstr[0] ""
+msgstr[1] ""
+
 #: includes/class-scanner.php:351
 msgid "Scan stopped."
 msgstr ""
@@ -966,6 +985,13 @@ msgid ""
 "\n"
 "Open the WordPress admin to review evidence and source locations."
 msgstr ""
+
+#: includes/class-scanner.php:531
+#, php-format
+msgid "Timed out or skipped for manual review: %d URL.\n"
+msgid_plural "Timed out or skipped for manual review: %d URLs.\n"
+msgstr[0] ""
+msgstr[1] ""
 
 #. translators: %s: Title of the post that received the comment.
 #: includes/class-sources.php:190

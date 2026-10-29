@@ -86,7 +86,8 @@ final class Scanner {
 			return self::progress( Database::get_scan( $scan_id ) );
 		}
 
-		$deadline = microtime( true ) + (int) Settings::get( 'execution_seconds', 8 );
+		$limits   = Settings::worker_limits();
+		$deadline = microtime( true ) + $limits['execution_seconds'];
 		try {
 			if ( 'discovering' === $scan->state ) {
 				/*
@@ -96,7 +97,7 @@ final class Scanner {
 				 */
 				$pending = Database::resources_for_scan( $scan->id, 1 );
 				if ( empty( $pending ) && microtime( true ) < $deadline ) {
-					self::discover( $scan, $deadline );
+					self::discover( $scan, $deadline, $limits['batch_size'] );
 				} elseif ( ! empty( $pending ) ) {
 					self::check_resources( $scan, $deadline );
 				}
@@ -110,6 +111,7 @@ final class Scanner {
 			$stats = $scan ? Database::scan_stats( $scan_id ) : array(
 				'total_resources'   => 0,
 				'checked_resources' => 0,
+				'skipped_resources' => 0,
 			);
 			if ( $scan && 'checking' === $scan->state && $stats['checked_resources'] >= $stats['total_resources'] ) {
 				Database::update_scan(
@@ -120,7 +122,7 @@ final class Scanner {
 						'counts'      => wp_json_encode( Database::counts() ),
 					)
 				);
-				self::notify_if_enabled();
+				self::notify_if_enabled( $scan_id );
 				self::schedule_next();
 				self::release_lock();
 				$scan = Database::get_scan( $scan_id );
@@ -204,16 +206,17 @@ final class Scanner {
 	 *
 	 * @param object $scan     Scan.
 	 * @param float  $deadline Deadline.
+	 * @param int    $batch_size Resources per worker request.
 	 * @return void
 	 */
-	private static function discover( $scan, $deadline ) {
+	private static function discover( $scan, $deadline, $batch_size ) {
 		$providers          = Sources::providers();
 		$index              = array_search( $scan->provider, $providers, true );
 		$index              = false === $index ? 0 : $index;
 		$provider           = $providers[ $index ];
 		$page               = max( 1, absint( $scan->page ) );
 		$offset             = absint( $scan->resource_cursor );
-		$batch              = Sources::batch( $provider, $page, absint( Settings::get( 'batch_size', 5 ) ), $offset );
+		$batch              = Sources::batch( $provider, $page, absint( $batch_size ), $offset );
 		$processed          = absint( $scan->processed_sources );
 		$occurrences        = absint( $scan->discovered_occurrences );
 		$processed_in_batch = 0;
@@ -273,8 +276,9 @@ final class Scanner {
 	 * @return void
 	 */
 	private static function check_resources( $scan, $deadline ) {
-		$resources = Database::resources_for_scan( $scan->id, absint( Settings::get( 'batch_size', 5 ) ) );
-		$parallel  = min( 8, max( 1, absint( Settings::get( 'parallel_requests', 4 ) ) ) );
+		$limits    = Settings::worker_limits();
+		$resources = Database::resources_for_scan( $scan->id, $limits['batch_size'] );
+		$parallel  = $limits['parallel_requests'];
 		$chunks    = array_chunk( $resources, $parallel );
 		foreach ( $chunks as $chunk ) {
 			if ( microtime( true ) >= $deadline ) {
@@ -294,10 +298,10 @@ final class Scanner {
 				$results = Http_Checker::check_many( $active, $deadline );
 			}
 			foreach ( $active as $resource_id => $resource ) {
-				if ( ! isset( $results[ $resource_id ] ) || ! empty( $results[ $resource_id ]['deferred'] ) ) {
-					continue;
+				$result = isset( $results[ $resource_id ] ) ? $results[ $resource_id ] : Http_Checker::scan_time_limit_result( $resource->url, absint( $resource->retry_count ) );
+				if ( ! empty( $result['deferred'] ) ) {
+					$result = Http_Checker::scan_time_limit_result( $resource->url, absint( $resource->retry_count ) );
 				}
-				$result = $results[ $resource_id ];
 				Database::save_result( $resource_id, $scan->id, $result );
 			}
 		}
@@ -323,6 +327,7 @@ final class Scanner {
 				'stats'   => array(
 					'total_resources'   => 0,
 					'checked_resources' => 0,
+					'skipped_resources' => 0,
 				),
 			);
 		}
@@ -346,7 +351,19 @@ final class Scanner {
 		} elseif ( 'checking' === $scan->state ) {
 			$message = __( 'Verifying unique URLs with bounded local requests.', 'linksolva-broken-link-checker' );
 		} elseif ( 'completed' === $scan->state ) {
-			$message = __( 'Scan completed.', 'linksolva-broken-link-checker' );
+			$skipped = absint( $stats['skipped_resources'] );
+			$message = $skipped
+				? sprintf(
+					/* translators: %d: URLs that timed out or reached the worker time limit. */
+					_n(
+						'Scan completed. %d URL timed out or reached the worker time limit and needs manual review.',
+						'Scan completed. %d URLs timed out or reached the worker time limit and need manual review.',
+						$skipped,
+						'linksolva-broken-link-checker'
+					),
+					$skipped
+				)
+				: __( 'Scan completed.', 'linksolva-broken-link-checker' );
 		} else {
 			$message = __( 'Scan stopped.', 'linksolva-broken-link-checker' );
 		}
@@ -487,9 +504,10 @@ final class Scanner {
 	/**
 	 * Send an optional local completion summary.
 	 *
+	 * @param int $scan_id Scan ID.
 	 * @return void
 	 */
-	private static function notify_if_enabled() {
+	private static function notify_if_enabled( $scan_id ) {
 		if ( ! Settings::get( 'email_notifications' ) ) {
 			return;
 		}
@@ -499,6 +517,7 @@ final class Scanner {
 		}
 		$counts  = Database::counts();
 		$subject = __( 'LinkSolva - Broken Link Checker scan complete', 'linksolva-broken-link-checker' );
+		$stats   = Database::scan_stats( $scan_id );
 		$message = sprintf(
 			/* translators: 1: Unique URL count, 2: Broken count, 3: Needs-review count, 4: Redirect count, 5: Healthy count. */
 			__( "Your local link scan is complete.\n\nUnique URLs: %1\$d\nBroken: %2\$d\nNeeds review: %3\$d\nRedirects: %4\$d\nHealthy: %5\$d\n\nOpen the WordPress admin to review evidence and source locations.", 'linksolva-broken-link-checker' ),
@@ -508,6 +527,19 @@ final class Scanner {
 			absint( $counts['redirect'] ),
 			absint( $counts['healthy'] )
 		);
+		if ( ! empty( $stats['skipped_resources'] ) ) {
+			$skipped_message = sprintf(
+				/* translators: %d: URLs that timed out or were skipped. */
+				_n(
+					'Timed out or skipped for manual review: %d URL.',
+					'Timed out or skipped for manual review: %d URLs.',
+					absint( $stats['skipped_resources'] ),
+					'linksolva-broken-link-checker'
+				),
+				absint( $stats['skipped_resources'] )
+			);
+			$message .= "\n\n" . $skipped_message;
+		}
 		wp_mail( $email, $subject, $message );
 	}
 }

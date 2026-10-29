@@ -240,12 +240,25 @@ final class Database {
 		global $wpdb;
 		$tables = self::tables();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Live scan progress must not be cached.
-		$total = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE last_scan_id = %d', $tables['resources'], absint( $scan_id ) ) );
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Live scan progress must not be cached.
-		$checked = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE last_scan_id = %d AND checked_scan_id = %d', $tables['resources'], absint( $scan_id ), absint( $scan_id ) ) );
+		$stats = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT COUNT(*) AS total_resources, SUM(CASE WHEN checked_scan_id = %d THEN 1 ELSE 0 END) AS checked_resources, SUM(CASE WHEN checked_scan_id = %d AND status IN ('timeout', 'unverified', 'redirect') AND error_code IN (%s, %s, %s, %s) THEN 1 ELSE 0 END) AS skipped_resources FROM %i WHERE last_scan_id = %d",
+				absint( $scan_id ),
+				absint( $scan_id ),
+				'scan_time_limit',
+				'timeout',
+				'verification_deferred',
+				'redirect_deferred',
+				$tables['resources'],
+				absint( $scan_id )
+			),
+			ARRAY_A
+		);
+		$stats = is_array( $stats ) ? $stats : array();
 		return array(
-			'total_resources'   => $total,
-			'checked_resources' => $checked,
+			'total_resources'   => isset( $stats['total_resources'] ) ? absint( $stats['total_resources'] ) : 0,
+			'checked_resources' => isset( $stats['checked_resources'] ) ? absint( $stats['checked_resources'] ) : 0,
+			'skipped_resources' => isset( $stats['skipped_resources'] ) ? absint( $stats['skipped_resources'] ) : 0,
 		);
 	}
 
