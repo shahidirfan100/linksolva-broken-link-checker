@@ -535,6 +535,18 @@ msgstr ""
 msgid "No findings match these filters."
 msgstr ""
 
+#: admin/class-admin.php
+msgid "The scan has not advanced. Automatic polling stopped; refresh this page to check its status."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "The scan worker is not responding. Automatic retries stopped; refresh this page to try again."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "The scan is still active. Refresh this page to resume it."
+msgstr ""
+
 #: admin/class-admin.php:173
 msgid "Scan started. Discovery and verification will run in small bounded requests."
 msgstr ""
@@ -959,10 +971,26 @@ msgstr ""
 
 #: includes/class-scanner.php:358
 #, php-format
-msgid "Scan completed. %d URL timed out or reached the worker time limit and needs manual review."
-msgid_plural "Scan completed. %d URLs timed out or reached the worker time limit and need manual review."
+msgid "Scan completed. %d URL could not be verified and needs manual review."
+msgid_plural "Scan completed. %d URLs could not be verified and need manual review."
 msgstr[0] ""
 msgstr[1] ""
+
+#: includes/class-database.php
+msgid "The scan worker stopped responding before this URL could be verified. Review it manually or select Recheck to try again."
+msgstr ""
+
+#: includes/class-scanner.php
+msgid "The scan could not save its remaining URL results. Review the report and run another scan."
+msgstr ""
+
+#: includes/class-scanner.php
+msgid "The scan stopped because some URLs could not be recorded. Review the report and run another scan."
+msgstr ""
+
+#: includes/class-scanner.php
+msgid "The scan stopped during source discovery because the worker stopped responding. Its report may be incomplete; start a new scan to continue."
+msgstr ""
 
 #: includes/class-scanner.php:351
 msgid "Scan stopped."
