@@ -349,7 +349,8 @@ final class Scanner {
 				$message = __( 'Reading WordPress content. Each URL is verified before more sources are fetched.', 'linksolva-broken-link-checker' );
 			}
 		} elseif ( 'checking' === $scan->state ) {
-			$message = __( 'Verifying unique URLs with bounded local requests.', 'linksolva-broken-link-checker' );
+			/* translators: 1: Checked URL count, 2: Total URL count. */
+			$message = sprintf( __( 'Verifying unique URLs (%1$d of %2$d complete).', 'linksolva-broken-link-checker' ), absint( $stats['checked_resources'] ), absint( $stats['total_resources'] ) );
 		} elseif ( 'completed' === $scan->state ) {
 			$skipped = absint( $stats['skipped_resources'] );
 			$message = $skipped
