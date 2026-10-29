@@ -121,5 +121,7 @@ jobs:
           mkdir -p /tmp/linksolva-wp/wp-content/plugins/linksolva-broken-link-checker
           cp -R . /tmp/linksolva-wp/wp-content/plugins/linksolva-broken-link-checker/
           php /tmp/wp.phar plugin activate linksolva-broken-link-checker --path=/tmp/linksolva-wp
+      - name: Measure a synthetic 2,000-URL scan and history snapshot
+        run: php /tmp/wp.phar eval-file tests/benchmark-scan.php --path=/tmp/linksolva-wp
       - name: Exercise real scan and history failure
         run: php /tmp/wp.phar eval-file tests/integration-scan.php --path=/tmp/linksolva-wp

@@ -2,6 +2,7 @@
 /** WordPress integration checks. Run with wp eval-file on a disposable site. */
 use LinkSolva\BrokenLinkChecker\Database;
 use LinkSolva\BrokenLinkChecker\Scanner;
+use LinkSolva\BrokenLinkChecker\Settings;
 
 function sblc_assert( $condition, $message ) {
 	if ( ! $condition ) {
@@ -52,6 +53,10 @@ $cancel = Scanner::cancel( $cancel['scan_id'] );
 sblc_assert( ! is_wp_error( $cancel ) && 'cancelled' === $cancel['state'], 'Scan cancellation failed.' );
 $progress = Scanner::start();
 sblc_assert( ! is_wp_error( $progress ), 'Could not start scan.' );
+// An abandoned worker lock must be reclaimed without classifying all pending URLs as skipped.
+update_option( Scanner::WORKER_LOCK_OPTION, array( 'token' => 'abandoned-test', 'locked_at' => time() - 120 ), false );
+$progress = Scanner::step( $progress['scan_id'] );
+sblc_assert( ! is_wp_error( $progress ) && in_array( $progress['state'], array( 'discovering', 'checking', 'completed' ), true ), 'An abandoned worker lock was not recovered.' );
 $progress = sblc_complete_scan( $progress, true );
 $first_id = $progress['scan_id'];
 sblc_assert( Database::get_history_scan( $first_id ), 'Completed scan was not saved in history.' );
@@ -65,6 +70,24 @@ sblc_assert( ! is_wp_error( $progress ), 'Could not start second scan.' );
 $progress = sblc_complete_scan( $progress );
 $scan_id = $progress['scan_id'];
 sblc_assert( Database::get_history_scan( $first_id ) && Database::get_history_scan( $scan_id ), 'Both completed scans should be available.' );
+// Check capability protection and paginated history against WordPress REST routing.
+rest_get_server();
+wp_set_current_user( 0 );
+$denied = rest_do_request( new WP_REST_Request( 'GET', '/sblc/v1/history' ) );
+sblc_assert( 401 === $denied->get_status(), 'Anonymous users must not read scan history.' );
+$admin = get_user_by( 'login', 'admin' );
+sblc_assert( (bool) $admin, 'Fixture administrator not found.' );
+wp_set_current_user( $admin->ID );
+$history = rest_do_request( new WP_REST_Request( 'GET', '/sblc/v1/history' ) );
+sblc_assert( 200 === $history->get_status() && count( $history->get_data()['items'] ) >= 2, 'Admin history endpoint failed.' );
+$request = new WP_REST_Request( 'GET', '/sblc/v1/history/' . $first_id . '/resources' );
+$request->set_param( 'per_page', 1 );
+$page = rest_do_request( $request );
+sblc_assert( 200 === $page->get_status() && 1 === count( $page->get_data()['items'] ) && $page->get_data()['total'] >= 3, 'History pagination failed.' );
+foreach ( array( 0, 5, 10, 25 ) as $limit ) {
+	$sanitized = Settings::sanitize( array( 'scan_history_limit' => $limit ) );
+	sblc_assert( $limit === $sanitized['scan_history_limit'], 'A supported history retention option was rejected.' );
+}
 $old_url = $wpdb->get_var( $wpdb->prepare( 'SELECT url FROM %i WHERE scan_id = %d AND url = %s', $tables['history_resources'], $first_id, 'https://example.invalid/link-0' ) );
 $new_url = $wpdb->get_var( $wpdb->prepare( 'SELECT url FROM %i WHERE scan_id = %d AND url = %s', $tables['history_resources'], $scan_id, 'https://example.invalid/changed' ) );
 sblc_assert( $old_url && $new_url, 'Saved results changed after a later scan.' );
