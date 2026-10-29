@@ -88,6 +88,7 @@ namespace LinkSolva\BrokenLinkChecker {
 	final class Database {
 		public static $saved_results = array();
 		public static $updates = array();
+		public static $stats_override = null;
 
 		public static function resources_for_scan( $scan_id, $limit ) {
 			return array(
@@ -111,6 +112,9 @@ namespace LinkSolva\BrokenLinkChecker {
 		}
 
 		public static function scan_stats( $scan_id ) {
+			if ( is_array( self::$stats_override ) ) {
+				return self::$stats_override;
+			}
 			return array(
 				'total_resources'   => count( self::$saved_results ),
 				'checked_resources' => count( self::$saved_results ),
@@ -182,6 +186,27 @@ namespace {
 
 	$progress_method = new \ReflectionMethod( Scanner::class, 'progress' );
 	$progress_method->setAccessible( true );
+	Database::$stats_override = array(
+		'total_resources'   => 12,
+		'checked_resources' => 11,
+		'skipped_resources' => 0,
+	);
+	$checking = $progress_method->invoke(
+		null,
+		(object) array(
+			'id'                     => 7,
+			'state'                  => 'checking',
+			'counts'                 => '{}',
+			'processed_sources'     => 12,
+			'discovered_occurrences' => 12,
+			'error_message'          => '',
+		)
+	);
+	if ( 91 !== $checking['percent'] || false === strpos( $checking['message'], '11 of 12 complete' ) ) {
+		fwrite( STDERR, "The active scan did not expose its checked-to-total progress.\n" );
+		exit( 1 );
+	}
+	Database::$stats_override = null;
 	$progress = $progress_method->invoke(
 		null,
 		(object) array(
