@@ -2,7 +2,7 @@
 # This file is distributed under the GPLv2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.16\n"
+"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.17\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/linksolva-broken-link-checker\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -961,7 +961,7 @@ msgid "Verifying discovered URLs before reading more sources (%1$d of %2$d compl
 msgstr ""
 
 #: includes/class-scanner.php:344
-msgid "Checking while finding more URLs: %1$d of %2$d found so far checked. The percentage may change as more URLs are found."
+msgid "Checking while finding more URLs: %1$d of %2$d found so far checked; %3$d sources read. The percentage may change as more URLs are found."
 msgstr ""
 
 #: includes/class-scanner.php:353
@@ -1158,4 +1158,12 @@ msgstr ""
 
 #: admin/class-admin.php
 msgid "Incomplete"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Elapsed"
+msgstr ""
+
+#: includes/class-scanner.php
+msgid "The scan stopped because the worker could not advance after several attempts. The report is incomplete; check your hosting limits and try again."
 msgstr ""

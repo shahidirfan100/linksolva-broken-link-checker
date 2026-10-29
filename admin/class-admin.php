@@ -55,6 +55,7 @@ final class Admin {
 					'The request could not be completed.' => __( 'The request could not be completed.', 'linksolva-broken-link-checker' ),
 					'Discovering sources'                 => __( 'Discovering sources', 'linksolva-broken-link-checker' ),
 					'Verifying resources'                 => __( 'Verifying resources', 'linksolva-broken-link-checker' ),
+					'Elapsed'                             => __( 'Elapsed', 'linksolva-broken-link-checker' ),
 					'Scan progress'                       => __( 'Scan progress', 'linksolva-broken-link-checker' ),
 					'Stop scan'                           => __( 'Stop scan', 'linksolva-broken-link-checker' ),
 					'All'                                 => __( 'All', 'linksolva-broken-link-checker' ),

@@ -16,6 +16,8 @@ final class Scanner {
 	const LOCK_OPTION          = 'sblc_scan_lock';
 	const WORKER_LOCK_OPTION   = 'sblc_scan_worker_lock';
 	const PRIORITY_OPTION      = 'sblc_scan_priority';
+	const NO_PROGRESS_OPTION   = 'sblc_scan_no_progress';
+	const NO_PROGRESS_LIMIT    = 5;
 	const WORKER_STALE_SECONDS = 60;
 
 	/**
@@ -115,6 +117,7 @@ final class Scanner {
 			return self::progress( $scan );
 		}
 
+		$before = self::work_key( $scan );
 		$limits   = Settings::worker_limits();
 		$deadline = microtime( true ) + $limits['execution_seconds'];
 		try {
@@ -133,8 +136,16 @@ final class Scanner {
 			}
 			$scan = Database::get_scan( $scan_id );
 			$scan = self::reconcile_scan( $scan, true );
-			if ( $scan && in_array( $scan->state, array( 'discovering', 'checking', 'cancelling' ), true ) ) {
-				self::touch_lock( $scan_id );
+			if ( $scan && in_array( $scan->state, array( 'discovering', 'checking' ), true ) ) {
+				$previous = get_option( self::NO_PROGRESS_OPTION, array() );
+				$unchanged = self::work_key( $scan ) === $before;
+				$attempts = $unchanged && is_array( $previous ) && isset( $previous['scan_id'], $previous['attempts'] ) && absint( $previous['scan_id'] ) === absint( $scan_id ) ? absint( $previous['attempts'] ) + 1 : ( $unchanged ? 1 : 0 );
+				update_option( self::NO_PROGRESS_OPTION, array( 'scan_id' => absint( $scan_id ), 'attempts' => $attempts ), false );
+				if ( $attempts >= self::NO_PROGRESS_LIMIT ) {
+					$scan = self::fail_stalled_scan( $scan_id, __( 'The scan stopped because the worker could not advance after several attempts. The report is incomplete; check your hosting limits and try again.', 'linksolva-broken-link-checker' ) );
+				} else {
+					self::touch_lock( $scan_id );
+				}
 			}
 			return self::progress( $scan );
 		} catch ( \Throwable $error ) {
@@ -278,6 +289,11 @@ final class Scanner {
 		self::schedule_next();
 		self::release_lock();
 		return Database::get_scan( $scan_id );
+	}
+
+	/** Return the persisted position of the worker, excluding timestamps. */
+	private static function work_key( $scan ) {
+		return implode( ':', array( $scan->state, $scan->provider, $scan->page, $scan->resource_cursor, $scan->processed_sources, $scan->discovered_occurrences, $scan->checked_resources ) );
 	}
 
 	/**
@@ -448,8 +464,8 @@ final class Scanner {
 		}
 		$counts = json_decode( $scan->counts, true );
 		if ( 'discovering' === $scan->state ) {
-			/* translators: 1: checked URL count, 2: URLs found so far. */
-			$message = sprintf( __( 'Checking while finding more URLs: %1$d of %2$d found so far checked. The percentage may change as more URLs are found.', 'linksolva-broken-link-checker' ), absint( $stats['checked_resources'] ), absint( $stats['total_resources'] ) );
+			/* translators: 1: checked URL count, 2: URLs found so far, 3: sources read. */
+			$message = sprintf( __( 'Checking while finding more URLs: %1$d of %2$d found so far checked; %3$d sources read. The percentage may change as more URLs are found.', 'linksolva-broken-link-checker' ), absint( $stats['checked_resources'] ), absint( $stats['total_resources'] ), absint( $scan->processed_sources ) );
 		} elseif ( 'checking' === $scan->state ) {
 			/* translators: 1: Checked URL count, 2: Total URL count. */
 			$message = sprintf( __( 'Verifying unique URLs (%1$d of %2$d complete).', 'linksolva-broken-link-checker' ), absint( $stats['checked_resources'] ), absint( $stats['total_resources'] ) );
@@ -472,9 +488,15 @@ final class Scanner {
 		} else {
 			$message = __( 'Scan stopped.', 'linksolva-broken-link-checker' );
 		}
+		$started = ! empty( $scan->started_at ) ? strtotime( $scan->started_at . ' UTC' ) : false;
+		$finished = ! empty( $scan->finished_at ) ? strtotime( $scan->finished_at . ' UTC' ) : false;
 		$priority = get_option( self::PRIORITY_OPTION, array() );
 		$scope = is_array( $priority ) && isset( $priority['scan_id'], $priority['scope'] ) && absint( $priority['scan_id'] ) === absint( $scan->id ) && in_array( $priority['scope'], array( 'internal', 'external' ), true ) ? $priority['scope'] : 'all';
 		return array(
+			'elapsed_seconds'         => $started ? max( 0, ( $finished ? $finished : time() ) - $started ) : 0,
+			'provider'                => sanitize_key( isset( $scan->provider ) ? $scan->provider : '' ),
+			'page'                    => absint( isset( $scan->page ) ? $scan->page : 0 ),
+			'resource_cursor'         => absint( isset( $scan->resource_cursor ) ? $scan->resource_cursor : 0 ),
 			'priority_scope'          => $scope,
 			'scan_id'                => absint( $scan->id ),
 			'state'                  => sanitize_key( $scan->state ),

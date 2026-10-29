@@ -6,6 +6,7 @@ const start = source.indexOf('function scanStatusMarkup(progress) {');
 const end = source.indexOf('\n\tfunction showActiveScan(', start);
 if (start < 0 || end < 0) throw new Error('Scan status renderer not found');
 const render = vm.runInNewContext('(' + source.slice(start, end).trim() + ')', {
+  elapsedLabel: seconds => 'Elapsed: ' + Math.floor((Number(seconds) || 0) / 60) + 'm ' + ((Number(seconds) || 0) % 60) + 's',
   translateMarkup: value => value,
   escapeHtml: value => String(value),
   t: value => value,

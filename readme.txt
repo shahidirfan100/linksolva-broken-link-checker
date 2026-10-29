@@ -4,7 +4,7 @@ Tags: broken links, link checker, broken images, redirects, local scanner
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.16
+Stable tag: 1.0.17
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -105,6 +105,9 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 
 == Changelog ==
 
+= 1.0.17 =
+* Show elapsed scan time and stop with an incomplete report if repeated worker steps cannot advance.
+
 = 1.0.16 =
 * Align status filter counts with the selected link scope, type, and search, and add a clear-filters control.
 * Prioritize the selected internal or external URLs in the scan queue.
@@ -194,6 +197,9 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * Added evidence-based HTTP classifications, URL deduplication, bounded scanning, safe repairs, and conflict-aware undo.
 
 == Upgrade Notice ==
+
+= 1.0.17 =
+Adds elapsed time and detects repeated worker steps that make no progress.
 
 = 1.0.16 =
 Status filter counts now reflect the selected link scope, type, and search.

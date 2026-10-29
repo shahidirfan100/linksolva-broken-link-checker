@@ -229,6 +229,9 @@
 			progress && progress.scan_id || 0,
 			progress && progress.state || '',
 			progress && progress.phase || '',
+			progress && progress.provider || '',
+			progress && progress.page || 0,
+			progress && progress.resource_cursor || 0,
 			stats.checked_resources || 0,
 			stats.total_resources || 0,
 			progress && progress.processed_sources || 0,
@@ -236,8 +239,21 @@
 		].join(':');
 	}
 
+	function elapsedLabel(seconds) {
+		seconds = Math.max(0, Math.floor(Number(seconds) || 0));
+		return t('Elapsed') + ': ' + Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
+	}
+
+	function updateElapsed() {
+		var timer = root.querySelector('[data-scan-elapsed]');
+		if (!timer) { return; }
+		var elapsed = Number(timer.getAttribute('data-elapsed-base')) || 0;
+		var at = Number(timer.getAttribute('data-elapsed-at')) || Date.now();
+		timer.textContent = elapsedLabel(elapsed + Math.floor(Math.max(0, Date.now() - at) / 1000));
+	}
+
 	function scanStatusMarkup(progress) {
-		return translateMarkup('<div class="sblc-scan-status" role="status"><strong>' + escapeHtml(progress.phase === 'discovery' ? t('Discovering sources') : t('Verifying resources')) + '</strong><span>' + escapeHtml(progress.message || '') + '</span><div class="sblc-progress" aria-label="Scan progress"><span style="width:' + escapeHtml(progress.percent || 0) + '%"></span></div><span>' + escapeHtml(progress.percent || 0) + '%</span>' + button(t('Stop scan'), 'cancel-scan', 'sblc-button-danger', ' data-scan-id="' + escapeHtml(progress.scan_id) + '"') + '</div>');
+		return translateMarkup('<div class="sblc-scan-status" role="status"><strong>' + escapeHtml(progress.phase === 'discovery' ? t('Discovering sources') : t('Verifying resources')) + '</strong><span>' + escapeHtml(progress.message || '') + '</span><div class="sblc-progress" aria-label="Scan progress"><span style="width:' + escapeHtml(progress.percent || 0) + '%"></span></div><span>' + escapeHtml(progress.percent || 0) + '%</span><span data-scan-elapsed data-elapsed-base="' + escapeHtml(progress.elapsed_seconds || 0) + '" data-elapsed-at="' + Date.now() + '" aria-live="off">' + escapeHtml(elapsedLabel(progress.elapsed_seconds)) + '</span>' + button(t('Stop scan'), 'cancel-scan', 'sblc-button-danger', ' data-scan-id="' + escapeHtml(progress.scan_id) + '"') + '</div>');
 	}
 
 	function showActiveScan(progress) {
@@ -674,5 +690,6 @@
 		if (event.target.hasAttribute('data-select-all')) { root.querySelectorAll('[data-resource-check]').forEach(function (input) { input.checked = event.target.checked; }); }
 	});
 
+	window.setInterval(updateElapsed, 1000);
 	refresh();
 }(window, document));
