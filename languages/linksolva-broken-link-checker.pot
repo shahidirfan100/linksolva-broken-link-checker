@@ -2,14 +2,14 @@
 # This file is distributed under the GPLv2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.12\n"
+"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.13\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/linksolva-broken-link-checker\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-29T13:22:28+00:00\n"
+"POT-Creation-Date: 2026-10-29T15:42+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: linksolva-broken-link-checker\n"
@@ -1030,4 +1030,108 @@ msgstr[1] ""
 #: includes/class-sources.php:190
 #, php-format
 msgid "Comment on %s"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Scan history"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Completed scans to keep"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Off"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "5 scans"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "10 scans"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "25 scans"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Save completed URL results and source locations on this site. Lowering the limit removes the oldest saved runs."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "No completed scans have been saved yet."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Review results saved from completed scans."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Run"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Started (UTC)"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Finished (UTC)"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "URLs checked"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Sources found"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "View results"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Back to scan history"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Saved URL results from this completed run."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "No URL results were saved for this run."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "View evidence"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "No source locations were saved for this URL."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Scan history is off. Enable it in Settings to save future completed runs."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Loading history…"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Loading history results…"
+msgstr ""
+
+#: includes/class-rest.php
+msgid "The saved scan was not found."
+msgstr ""
+
+#: includes/class-rest.php
+msgid "The saved URL result was not found."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Broken / review / redirects / healthy"
 msgstr ""

@@ -10,7 +10,7 @@ namespace LinkSolva\BrokenLinkChecker;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Provides data access for plugin-owned scan, URL, occurrence, and repair tables.
+ * Provides data access for plugin-owned scan, result, occurrence, and repair tables.
  */
 final class Database {
 	/**
@@ -21,10 +21,12 @@ final class Database {
 	public static function tables() {
 		global $wpdb;
 		return array(
-			'resources'   => $wpdb->prefix . 'sblc_resources',
-			'occurrences' => $wpdb->prefix . 'sblc_occurrences',
-			'scans'       => $wpdb->prefix . 'sblc_scans',
-			'repairs'     => $wpdb->prefix . 'sblc_repairs',
+			'resources'           => $wpdb->prefix . 'sblc_resources',
+			'occurrences'         => $wpdb->prefix . 'sblc_occurrences',
+			'scans'               => $wpdb->prefix . 'sblc_scans',
+			'history_resources'   => $wpdb->prefix . 'sblc_history_resources',
+			'history_occurrences' => $wpdb->prefix . 'sblc_history_occurrences',
+			'repairs'             => $wpdb->prefix . 'sblc_repairs',
 		);
 	}
 
@@ -260,6 +262,250 @@ final class Database {
 			'checked_resources' => isset( $stats['checked_resources'] ) ? absint( $stats['checked_resources'] ) : 0,
 			'skipped_resources' => isset( $stats['skipped_resources'] ) ? absint( $stats['skipped_resources'] ) : 0,
 		);
+	}
+
+	/**
+	 * Save the completed scan's findings before the live rows are reused.
+	 *
+	 * @param int $scan_id Scan ID.
+	 * @return bool
+	 */
+	public static function save_scan_history( $scan_id ) {
+		global $wpdb;
+		if ( 0 === absint( Settings::get( 'scan_history_limit', 5 ) ) ) {
+			return false;
+		}
+
+		$scan_id = absint( $scan_id );
+		$scan    = self::get_scan( $scan_id );
+		if ( ! $scan || 'completed' !== $scan->state ) {
+			return false;
+		}
+		if ( ! empty( $scan->history_saved ) ) {
+			return true;
+		}
+		$tables = self::tables();
+		self::delete_history_rows( $tables, array( $scan_id ) );
+
+		// Copy in SQL to avoid loading the site's full findings into PHP memory.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- A completed scan must be snapshotted before the live resource rows are reused.
+		$resources_saved = $wpdb->query(
+			$wpdb->prepare(
+				'INSERT INTO %i (scan_id, resource_id, url, resource_type, link_scope, status, confidence, http_code, error_code, status_text, explanation, final_url, redirect_chain, request_history, response_time, last_checked, occurrence_count) SELECT %d, r.id, r.url, r.resource_type, r.link_scope, r.status, r.confidence, r.http_code, r.error_code, r.status_text, r.explanation, r.final_url, r.redirect_chain, r.request_history, r.response_time, r.last_checked, COALESCE(o.occurrence_count, 0) FROM %i r LEFT JOIN (SELECT resource_id, COUNT(*) AS occurrence_count FROM %i WHERE scan_id = %d GROUP BY resource_id) o ON o.resource_id = r.id WHERE r.last_scan_id = %d',
+				$tables['history_resources'],
+				$scan_id,
+				$tables['resources'],
+				$tables['occurrences'],
+				$scan_id,
+				$scan_id
+			)
+		);
+		if ( false === $resources_saved ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Preserve source evidence from the just-completed scan.
+		$occurrences_saved = $wpdb->query(
+			$wpdb->prepare(
+				'INSERT INTO %i (scan_id, resource_id, source_type, source_id, source_field, source_title, source_url, anchor_text, context, raw_url, location, editable) SELECT %d, o.resource_id, o.source_type, o.source_id, o.source_field, o.source_title, o.source_url, o.anchor_text, o.context, o.raw_url, o.location, o.editable FROM %i o WHERE o.scan_id = %d',
+				$tables['history_occurrences'],
+				$scan_id,
+				$tables['occurrences'],
+				$scan_id
+			)
+		);
+		if ( false === $occurrences_saved ) {
+			self::delete_history_rows( $tables, array( $scan_id ) );
+			return false;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Mark this completed scan as available in read-only history.
+		$saved = $wpdb->update( $tables['scans'], array( 'history_saved' => 1 ), array( 'id' => $scan_id ), array( '%d' ), array( '%d' ) );
+		if ( false === $saved ) {
+			self::delete_history_rows( $tables, array( $scan_id ) );
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Save the latest completed scan if its live results have not been archived.
+	 *
+	 * @return bool
+	 */
+	public static function save_latest_scan_history() {
+		$scan = self::get_latest_scan();
+		if ( ! $scan || 'completed' !== $scan->state || ! empty( $scan->history_saved ) ) {
+			return false;
+		}
+		return self::save_scan_history( $scan->id );
+	}
+
+	/**
+	 * Keep only the configured number of saved completed scans.
+	 *
+	 * @param int|null $limit Maximum number of completed runs to keep.
+	 * @return bool
+	 */
+	public static function prune_scan_history( $limit = null ) {
+		global $wpdb;
+		$limit = null === $limit ? absint( Settings::get( 'scan_history_limit', 5 ) ) : absint( $limit );
+		$limit = min( 25, $limit );
+		$tables = self::tables();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Retention is applied to plugin-owned scan records.
+		$saved_ids = $wpdb->get_col(
+			$wpdb->prepare( "SELECT id FROM %i WHERE state = %s AND history_saved = 1 ORDER BY id DESC", $tables['scans'], 'completed' )
+		);
+		$saved_ids = array_map( 'absint', is_array( $saved_ids ) ? $saved_ids : array() );
+		$remove_ids = array_slice( $saved_ids, $limit );
+		if ( empty( $remove_ids ) ) {
+			return true;
+		}
+
+		self::delete_history_rows( $tables, $remove_ids );
+		$placeholders = implode( ', ', array_fill( 0, count( $remove_ids ), '%d' ) );
+		$params       = array_merge( array( $tables['scans'] ), $remove_ids );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- IDs are integer-sanitized and every value is prepared.
+		return false !== $wpdb->query( $wpdb->prepare( "UPDATE %i SET history_saved = 0 WHERE id IN ({$placeholders})", $params ) );
+	}
+
+	/**
+	 * Return saved completed scan summaries.
+	 *
+	 * @param int $limit Maximum number of runs to return.
+	 * @return array
+	 */
+	public static function scan_history( $limit = 25 ) {
+		global $wpdb;
+		$tables = self::tables();
+		$limit  = min( 25, absint( $limit ) );
+		if ( 0 === $limit ) {
+			return array();
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- History rows are plugin-owned and should not be served from a stale cache.
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, state, total_sources, processed_sources, discovered_occurrences, checked_resources, counts, started_at, finished_at FROM %i WHERE state = %s AND history_saved = 1 ORDER BY id DESC LIMIT %d",
+				$tables['scans'],
+				'completed',
+				$limit
+			)
+		);
+	}
+
+	/**
+	 * Get a completed scan that still has saved results.
+	 *
+	 * @param int $scan_id Scan ID.
+	 * @return object|null
+	 */
+	public static function get_history_scan( $scan_id ) {
+		global $wpdb;
+		$tables = self::tables();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Validate that the requested saved scan is still retained.
+		return $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT id, state, started_at, finished_at, counts, checked_resources, discovered_occurrences FROM %i WHERE id = %d AND state = %s AND history_saved = 1 LIMIT 1",
+				$tables['scans'],
+				absint( $scan_id ),
+				'completed'
+			)
+		);
+	}
+
+	/**
+	 * List resources from a saved scan.
+	 *
+	 * @param int   $scan_id Scan ID.
+	 * @param array $args    Pagination and filters.
+	 * @return array
+	 */
+	public static function scan_history_resources( $scan_id, $args ) {
+		global $wpdb;
+		$table    = self::tables()['history_resources'];
+		$page     = max( 1, absint( $args['page'] ) );
+		$per_page = min( 100, max( 1, absint( $args['per_page'] ) ) );
+		$where    = array( 'scan_id = %d' );
+		$params   = array( absint( $scan_id ) );
+		if ( ! empty( $args['status'] ) && 'all' !== $args['status'] ) {
+			$status = sanitize_key( $args['status'] );
+			if ( 'needs_review' === $status ) {
+				$where[] = "status IN ('blocked','rate_limited','temporary_error','ssl_error','dns_error','timeout','unverified')";
+			} else {
+				$where[]  = 'status = %s';
+				$params[] = $status;
+			}
+		}
+		if ( ! empty( $args['type'] ) && 'all' !== $args['type'] ) {
+			$where[]  = 'resource_type = %s';
+			$params[] = sanitize_key( $args['type'] );
+		}
+		if ( ! empty( $args['search'] ) ) {
+			$where[]  = 'url LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( sanitize_text_field( $args['search'] ) ) . '%';
+		}
+		$where_sql   = implode( ' AND ', $where );
+		$count_args  = array_merge( array( $table ), $params );
+		$list_args   = array_merge( array( $table ), $params, array( $per_page, ( $page - 1 ) * $per_page ) );
+		$count_query = $wpdb->prepare( "SELECT COUNT(*) FROM %i WHERE {$where_sql}", $count_args );
+		$list_query  = $wpdb->prepare( "SELECT * FROM %i WHERE {$where_sql} ORDER BY FIELD(status, 'broken','redirect','blocked','rate_limited','temporary_error','ssl_error','dns_error','timeout','unverified','pending','healthy','ignored'), id DESC LIMIT %d OFFSET %d", $list_args );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- Filters above are allowlisted and all values are prepared.
+		$total = (int) $wpdb->get_var( $count_query );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- Filters above are allowlisted and all values are prepared.
+		$items = $wpdb->get_results( $list_query );
+		return array( 'total' => $total, 'items' => $items );
+	}
+
+	/**
+	 * Get one saved resource result.
+	 *
+	 * @param int $scan_id     Scan ID.
+	 * @param int $resource_id Resource ID.
+	 * @return object|null
+	 */
+	public static function get_scan_history_resource( $scan_id, $resource_id ) {
+		global $wpdb;
+		$table = self::tables()['history_resources'];
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Historical evidence is read from the plugin-owned snapshot table.
+		return $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE scan_id = %d AND resource_id = %d LIMIT 1', $table, absint( $scan_id ), absint( $resource_id ) ) );
+	}
+
+	/**
+	 * Get source locations saved with a historical resource result.
+	 *
+	 * @param int $scan_id     Scan ID.
+	 * @param int $resource_id Resource ID.
+	 * @return array
+	 */
+	public static function scan_history_occurrences( $scan_id, $resource_id ) {
+		global $wpdb;
+		$table = self::tables()['history_occurrences'];
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Historical source evidence is intentionally read-only.
+		return $wpdb->get_results(
+			$wpdb->prepare( 'SELECT * FROM %i WHERE scan_id = %d AND resource_id = %d ORDER BY id ASC', $table, absint( $scan_id ), absint( $resource_id ) )
+		);
+	}
+
+	/**
+	 * Delete saved result and source rows for the supplied scans.
+	 *
+	 * @param array $tables   Plugin table names.
+	 * @param array $scan_ids Scan IDs.
+	 * @return void
+	 */
+	private static function delete_history_rows( $tables, $scan_ids ) {
+		global $wpdb;
+		$scan_ids = array_values( array_filter( array_map( 'absint', $scan_ids ) ) );
+		if ( empty( $scan_ids ) ) {
+			return;
+		}
+		$placeholders = implode( ', ', array_fill( 0, count( $scan_ids ), '%d' ) );
+		foreach ( array( 'history_occurrences', 'history_resources' ) as $key ) {
+			$params = array_merge( array( $tables[ $key ] ), $scan_ids );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- IDs are integer-sanitized and all values are prepared.
+			$wpdb->query( $wpdb->prepare( "DELETE FROM %i WHERE scan_id IN ({$placeholders})", $params ) );
+		}
 	}
 
 	/**

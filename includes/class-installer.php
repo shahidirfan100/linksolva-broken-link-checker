@@ -13,7 +13,7 @@ defined( 'ABSPATH' ) || exit;
  * Creates schema and manages activation and deactivation state.
  */
 final class Installer {
-	const DB_VERSION = '1.1.1';
+	const DB_VERSION = '1.1.2';
 
 	/**
 	 * Activate the plugin.
@@ -68,6 +68,10 @@ final class Installer {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Normalize nullable legacy queue markers during a schema upgrade.
 			$wpdb->query( $wpdb->prepare( 'UPDATE %i SET checked_scan_id = 0 WHERE checked_scan_id IS NULL', $table ) );
 			update_option( 'sblc_db_version', self::DB_VERSION, false );
+			if ( Settings::get( 'scan_history_limit', 5 ) > 0 ) {
+				Database::save_latest_scan_history();
+				Database::prune_scan_history();
+			}
 		}
 	}
 
@@ -92,10 +96,12 @@ final class Installer {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		$charset     = $wpdb->get_charset_collate();
-		$resources   = $wpdb->prefix . 'sblc_resources';
-		$occurrences = $wpdb->prefix . 'sblc_occurrences';
-		$scans       = $wpdb->prefix . 'sblc_scans';
-		$repairs     = $wpdb->prefix . 'sblc_repairs';
+		$resources           = $wpdb->prefix . 'sblc_resources';
+		$occurrences         = $wpdb->prefix . 'sblc_occurrences';
+		$scans               = $wpdb->prefix . 'sblc_scans';
+		$history_resources   = $wpdb->prefix . 'sblc_history_resources';
+		$history_occurrences = $wpdb->prefix . 'sblc_history_occurrences';
+		$repairs             = $wpdb->prefix . 'sblc_repairs';
 
 		$sql   = array();
 		$sql[] = "CREATE TABLE {$resources} (
@@ -151,6 +157,7 @@ final class Installer {
 			UNIQUE KEY occurrence_hash (occurrence_hash),
 			KEY resource_id (resource_id),
 			KEY scan_id (scan_id),
+			KEY scan_resource (scan_id, resource_id),
 			KEY source (source_type, source_id)
 		) {$charset};";
 
@@ -170,9 +177,53 @@ final class Installer {
 			updated_at datetime NOT NULL,
 			finished_at datetime NULL,
 			error_message text NOT NULL,
+			history_saved tinyint(1) unsigned NOT NULL DEFAULT 0,
 			PRIMARY KEY  (id),
 			KEY state (state),
+			KEY state_history (state, history_saved, id),
 			KEY updated_at (updated_at)
+		) {$charset};";
+
+		$sql[] = "CREATE TABLE {$history_resources} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			scan_id bigint(20) unsigned NOT NULL,
+			resource_id bigint(20) unsigned NOT NULL,
+			url longtext NOT NULL,
+			resource_type varchar(20) NOT NULL DEFAULT 'link',
+			link_scope varchar(20) NOT NULL DEFAULT 'external',
+			status varchar(32) NOT NULL DEFAULT 'unverified',
+			confidence varchar(20) NOT NULL DEFAULT 'unverified',
+			http_code smallint(5) unsigned NOT NULL DEFAULT 0,
+			error_code varchar(80) NOT NULL DEFAULT '',
+			status_text varchar(191) NOT NULL DEFAULT '',
+			explanation text NOT NULL,
+			final_url longtext NOT NULL,
+			redirect_chain longtext NOT NULL,
+			request_history longtext NOT NULL,
+			response_time decimal(10,3) NOT NULL DEFAULT 0,
+			last_checked datetime NULL,
+			occurrence_count bigint(20) unsigned NOT NULL DEFAULT 0,
+			PRIMARY KEY  (id),
+			UNIQUE KEY scan_resource (scan_id, resource_id),
+			KEY scan_status (scan_id, status)
+		) {$charset};";
+
+		$sql[] = "CREATE TABLE {$history_occurrences} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			scan_id bigint(20) unsigned NOT NULL,
+			resource_id bigint(20) unsigned NOT NULL,
+			source_type varchar(32) NOT NULL,
+			source_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			source_field varchar(191) NOT NULL DEFAULT '',
+			source_title varchar(255) NOT NULL DEFAULT '',
+			source_url longtext NOT NULL,
+			anchor_text text NOT NULL,
+			context text NOT NULL,
+			raw_url text NOT NULL,
+			location varchar(80) NOT NULL DEFAULT '',
+			editable tinyint(1) unsigned NOT NULL DEFAULT 0,
+			PRIMARY KEY  (id),
+			KEY scan_resource (scan_id, resource_id)
 		) {$charset};";
 
 		$sql[] = "CREATE TABLE {$repairs} (

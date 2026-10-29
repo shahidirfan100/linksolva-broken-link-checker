@@ -41,6 +41,7 @@ final class Settings {
 			'email_notifications'      => false,
 			'notification_email'       => '',
 			'delete_data_on_uninstall' => false,
+			'scan_history_limit'       => 5,
 			'excluded_domains'         => array(),
 			'excluded_url_fragments'   => array(),
 		);
@@ -55,8 +56,9 @@ final class Settings {
 		$stored   = get_option( self::OPTION, array() );
 		$stored   = is_array( $stored ) ? $stored : array();
 		$settings = wp_parse_args( $stored, self::defaults() );
-		$settings['batch_size']        = min( 10, max( 1, absint( $settings['batch_size'] ) ) );
-		$settings['parallel_requests'] = min( 4, max( 1, absint( $settings['parallel_requests'] ) ) );
+		$settings['batch_size']         = min( 10, max( 1, absint( $settings['batch_size'] ) ) );
+		$settings['parallel_requests']  = min( 4, max( 1, absint( $settings['parallel_requests'] ) ) );
+		$settings['scan_history_limit'] = self::history_limit( $settings['scan_history_limit'] );
 		if ( ! array_key_exists( 'schedule', $stored ) && ! empty( $stored['schedule_enabled'] ) ) {
 			$settings['schedule'] = 'daily';
 		}
@@ -85,6 +87,10 @@ final class Settings {
 		$previous  = self::all();
 		$sanitized = self::sanitize( $input );
 		update_option( self::OPTION, $sanitized, false );
+		if ( $sanitized['scan_history_limit'] > 0 ) {
+			Database::save_latest_scan_history();
+		}
+		Database::prune_scan_history( $sanitized['scan_history_limit'] );
 		if ( 'manual' === $sanitized['schedule'] ) {
 			delete_option( 'sblc_next_scan_at' );
 		} elseif ( $previous['schedule'] !== $sanitized['schedule'] || ! get_option( 'sblc_next_scan_at' ) ) {
@@ -104,20 +110,21 @@ final class Settings {
 		$defaults = self::defaults();
 		$output   = self::all();
 
-		$integer_keys = array( 'batch_size', 'parallel_requests', 'execution_seconds', 'timeout', 'max_redirects', 'max_retries', 'max_body_bytes' );
+		$integer_keys = array( 'batch_size', 'parallel_requests', 'execution_seconds', 'timeout', 'max_redirects', 'max_retries', 'max_body_bytes', 'scan_history_limit' );
 		foreach ( $integer_keys as $key ) {
 			if ( array_key_exists( $key, $input ) ) {
 				$output[ $key ] = absint( $input[ $key ] );
 			}
 		}
 
-		$output['batch_size']        = min( 10, max( 1, (int) $output['batch_size'] ) );
-		$output['parallel_requests'] = min( 4, max( 1, (int) $output['parallel_requests'] ) );
-		$output['execution_seconds'] = min( 20, max( 3, (int) $output['execution_seconds'] ) );
-		$output['timeout']           = min( 60, max( 3, (int) $output['timeout'] ) );
-		$output['max_redirects']     = min( 15, max( 0, (int) $output['max_redirects'] ) );
-		$output['max_retries']       = min( 4, max( 0, (int) $output['max_retries'] ) );
-		$output['max_body_bytes']    = min( 65536, max( 1024, (int) $output['max_body_bytes'] ) );
+		$output['batch_size']         = min( 10, max( 1, (int) $output['batch_size'] ) );
+		$output['parallel_requests']  = min( 4, max( 1, (int) $output['parallel_requests'] ) );
+		$output['execution_seconds']  = min( 20, max( 3, (int) $output['execution_seconds'] ) );
+		$output['timeout']            = min( 60, max( 3, (int) $output['timeout'] ) );
+		$output['max_redirects']      = min( 15, max( 0, (int) $output['max_redirects'] ) );
+		$output['max_retries']        = min( 4, max( 0, (int) $output['max_retries'] ) );
+		$output['max_body_bytes']     = min( 65536, max( 1024, (int) $output['max_body_bytes'] ) );
+		$output['scan_history_limit'] = self::history_limit( $output['scan_history_limit'] );
 
 		$boolean_keys = array( 'include_comments', 'include_menus', 'include_custom_fields', 'include_featured_images', 'check_internal_links', 'check_external_links', 'email_notifications', 'delete_data_on_uninstall' );
 		foreach ( $boolean_keys as $key ) {
@@ -154,6 +161,17 @@ final class Settings {
 		unset( $output['schedule_enabled'] );
 
 		return $output;
+	}
+
+	/**
+	 * Restrict retained completed scan history to supported limits.
+	 *
+	 * @param mixed $limit Requested number of runs.
+	 * @return int
+	 */
+	private static function history_limit( $limit ) {
+		$limit = is_numeric( $limit ) ? absint( $limit ) : 5;
+		return in_array( $limit, array( 0, 5, 10, 25 ), true ) ? $limit : 5;
 	}
 
 	/**
