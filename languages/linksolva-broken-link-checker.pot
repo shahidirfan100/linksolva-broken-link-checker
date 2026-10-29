@@ -948,8 +948,9 @@ msgstr ""
 msgid "Reading WordPress content. Each URL is verified before more sources are fetched."
 msgstr ""
 
-#: includes/class-scanner.php:347
-msgid "Verifying unique URLs with bounded local requests."
+#: includes/class-scanner.php:353
+#, php-format
+msgid "Verifying unique URLs (%1$d of %2$d complete)."
 msgstr ""
 
 #: includes/class-scanner.php:349
