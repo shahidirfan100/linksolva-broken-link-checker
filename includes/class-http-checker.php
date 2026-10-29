@@ -59,9 +59,9 @@ final class Http_Checker {
 			$results = array();
 			foreach ( $entries as $key => $entry ) {
 				$result = self::check_with_initial( $entry['url'], $entry['retry'], null, $deadline );
-				if ( empty( $result['deferred'] ) ) {
-					$results[ $key ] = $result;
-				}
+				$results[ $key ] = ! empty( $result['deferred'] )
+					? self::scan_time_limit_result( $entry['url'], $entry['retry'] )
+					: $result;
 			}
 			return $results;
 		}
@@ -79,6 +79,7 @@ final class Http_Checker {
 
 		foreach ( $entries as $key => $entry ) {
 			if ( $deadline > 0 && microtime( true ) >= $deadline ) {
+				$results[ $key ] = self::scan_time_limit_result( $entry['url'], $entry['retry'] );
 				continue;
 			}
 			$safety = Ssrf_Guard::validate( $entry['url'] );
@@ -89,6 +90,7 @@ final class Http_Checker {
 			}
 			$args = self::request_args( $entry['url'], 'HEAD', $settings, $deadline );
 			if ( $deadline > 0 && $args['timeout'] < 1 ) {
+				$results[ $key ] = self::scan_time_limit_result( $entry['url'], $entry['retry'] );
 				continue;
 			}
 			$starts[ $key ]   = $batch_started;
@@ -145,6 +147,33 @@ final class Http_Checker {
 	}
 
 	/**
+	 * Return an inconclusive result for a URL that cannot fit in the current worker.
+	 *
+	 * Saving this result completes the URL for this scan, preventing an exhausted
+	 * worker budget from leaving the same queue item pending indefinitely.
+	 *
+	 * @param string $url         URL.
+	 * @param int    $retry_count Previous retry count.
+	 * @return array
+	 */
+	public static function scan_time_limit_result( $url, $retry_count = 0 ) {
+		return self::result(
+			'unverified',
+			'unverified',
+			0,
+			$url,
+			'scan_time_limit',
+			__( 'Skipped for review', 'linksolva-broken-link-checker' ),
+			__( 'This URL was skipped because the worker reached its time limit before verification finished. Review it manually or select Recheck to try again.', 'linksolva-broken-link-checker' ),
+			array(),
+			array(),
+			0,
+			$retry_count,
+			$url
+		);
+	}
+
+	/**
 	 * Check one URL, optionally reusing a parallel HEAD response.
 	 *
 	 * @param string     $url              URL.
@@ -155,6 +184,9 @@ final class Http_Checker {
 	private static function check_with_initial( $url, $retry_count, $initial_response, $deadline = 0.0, $initial_safety = null ) {
 		$settings    = Settings::all();
 		$max_retries = absint( $settings['max_retries'] );
+		if ( $deadline > 0 && microtime( true ) >= $deadline ) {
+			return self::scan_time_limit_result( $url, $retry_count );
+		}
 		$safety      = is_array( $initial_safety ) ? $initial_safety : Ssrf_Guard::validate( $url );
 		if ( empty( $safety['safe'] ) ) {
 			$category    = ! empty( $safety['code'] ) ? sanitize_key( $safety['code'] ) : 'unsafe_request';
@@ -179,7 +211,7 @@ final class Http_Checker {
 			} else {
 				$head = self::request( $current, 'HEAD', $settings, $deadline );
 				if ( ! empty( $head['deferred'] ) ) {
-					return array( 'deferred' => true );
+					return self::scan_time_limit_result( $url, $retry_count );
 				}
 			}
 			$first_request = false;

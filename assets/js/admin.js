@@ -17,6 +17,10 @@
 		perPage: 20,
 		monitoring: false,
 		monitorTimer: null,
+		reconcileTimer: null,
+		unchangedSteps: 0,
+		lastStepProgressKey: '',
+		refreshId: 0,
 		lastProgress: null,
 		drawerOpener: null,
 		bodyOverflow: ''
@@ -76,7 +80,28 @@
 		options.headers = options.headers || {};
 		options.headers['X-WP-Nonce'] = config.nonce;
 		options.headers['Content-Type'] = 'application/json';
-		return fetch(endpoint, options).then(function (response) {
+		options.cache = 'no-store';
+		var request;
+		if ( '/scan/step' === path || '/dashboard' === path ) {
+			var controller = typeof window.AbortController === 'function' ? new window.AbortController() : null;
+			if ( controller ) { options.signal = controller.signal; }
+			request = new Promise(function (resolve, reject) {
+				var timeoutId = window.setTimeout(function () {
+					if ( controller ) { controller.abort(); }
+					reject(new Error(t('The scan status request timed out.')));
+				}, 30000);
+				fetch(endpoint, options).then(function (response) {
+					window.clearTimeout(timeoutId);
+					resolve(response);
+				}, function (error) {
+					window.clearTimeout(timeoutId);
+					reject(error);
+				});
+			});
+		} else {
+			request = fetch(endpoint, options);
+		}
+		return request.then(function (response) {
 			return response.json().catch(function () { return {}; }).then(function (body) {
 				if (!response.ok) {
 					throw new Error(body.message || t('The request could not be completed.'));
@@ -103,6 +128,11 @@
 		if (main) {
 			main.insertBefore(element, main.firstChild);
 		}
+	}
+
+	function clearLiveNotice() {
+		var existing = root.querySelector('.sblc-notice-live');
+		if (existing) { existing.remove(); }
 	}
 
 	function button(label, action, extraClass, extra) {
@@ -186,13 +216,64 @@
 		});
 	}
 
+	function isActiveScan(progress) {
+		return !!progress && ['discovering', 'checking', 'cancelling'].indexOf(progress.state) !== -1;
+	}
+
+	function progressKey(progress) {
+		var stats = progress && progress.stats ? progress.stats : {};
+		return [
+			progress && progress.scan_id || 0,
+			progress && progress.state || '',
+			progress && progress.phase || '',
+			stats.checked_resources || 0,
+			stats.total_resources || 0,
+			progress && progress.processed_sources || 0,
+			progress && progress.discovered_occurrences || 0
+		].join(':');
+	}
+
+	function scanStatusMarkup(progress) {
+		return translateMarkup('<div class="sblc-scan-status" role="status"><strong>' + escapeHtml(progress.phase === 'discovery' ? t('Discovering sources') : t('Verifying resources')) + '</strong><span>' + escapeHtml(progress.message || '') + '</span><div class="sblc-progress" aria-label="Scan progress"><span style="width:' + escapeHtml(progress.percent || 0) + '%"></span></div><span>' + escapeHtml(progress.percent || 0) + '%</span>' + button(t('Stop scan'), 'cancel-scan', 'sblc-button-danger', ' data-scan-id="' + escapeHtml(progress.scan_id) + '"') + '</div>');
+	}
+
+	function showActiveScan(progress) {
+		if (!isActiveScan(progress)) { return; }
+		var screen = root.querySelector('[data-screen-content]');
+		if (!screen) { return; }
+		var wrapper = document.createElement('div');
+		wrapper.innerHTML = scanStatusMarkup(progress);
+		var nextStatus = wrapper.firstElementChild;
+		var currentStatus = screen.querySelector('.sblc-scan-status');
+		if (currentStatus) {
+			currentStatus.parentNode.replaceChild(nextStatus, currentStatus);
+			return;
+		}
+		var toolbar = screen.querySelector('.sblc-toolbar');
+		if (toolbar) {
+			screen.insertBefore(nextStatus, toolbar.nextSibling);
+		} else {
+			screen.insertBefore(nextStatus, screen.firstChild);
+		}
+	}
+
+	function resumeActiveScan(progress) {
+		if (isActiveScan(progress) && !state.monitoring && !state.monitorTimer) {
+			monitor(progress.scan_id);
+		}
+	}
+
 	function renderFindings(data) {
 		var progress = data.progress || {};
 		var counts = data.counts || progress.counts || {};
-		var active = ['discovering', 'checking', 'cancelling'].indexOf(progress.state) !== -1;
+		var active = isActiveScan(progress);
 		var scanStatus = active
-			? translateMarkup('<div class="sblc-scan-status" role="status"><strong>' + escapeHtml(progress.phase === 'discovery' ? t('Discovering sources') : t('Verifying resources')) + '</strong><span>' + escapeHtml(progress.message || '') + '</span><div class="sblc-progress" aria-label="Scan progress"><span style="width:' + escapeHtml(progress.percent || 0) + '%"></span></div><span>' + escapeHtml(progress.percent || 0) + '%</span>' + button(t('Stop scan'), 'cancel-scan', 'sblc-button-danger', ' data-scan-id="' + escapeHtml(progress.scan_id) + '"') + '</div>')
-			: '';
+			? scanStatusMarkup(progress)
+			: progress.state === 'completed' && progress.stats && Number(progress.stats.skipped_resources) > 0
+				? '<div class="sblc-notice" role="status">' + escapeHtml(progress.message || '') + '</div>'
+				: progress.state === 'failed' && progress.message
+					? '<div class="sblc-notice" role="alert">' + escapeHtml(progress.message) + '</div>'
+				: '';
 		var statuses = [
 			['all', t('All'), counts.all], ['broken', t('Broken'), counts.broken], ['redirect', t('Redirects'), counts.redirect], ['needs_review', t('Needs review'), counts.needs_review], ['blocked', t('Blocked'), counts.blocked], ['healthy', t('Healthy'), counts.healthy], ['ignored', t('Ignored'), counts.ignored]
 		];
@@ -221,9 +302,6 @@
 			scopeSelect.value = state.scope;
 			typeSelect.parentNode.insertBefore(scopeSelect, typeSelect);
 		}
-		if (active && !state.monitoring && !state.monitorTimer) {
-			monitor(progress.scan_id);
-		}
 	}
 
 	function renderRow(item) {
@@ -240,7 +318,7 @@
 			var label = type.label || name;
 			return '<label class="sblc-check"><input type="checkbox" name="post_types[]" value="' + escapeHtml(name) + '"' + ((settings.post_types || []).indexOf(name) !== -1 ? ' checked' : '') + ' /> <span>' + escapeHtml(label) + ' <code>' + escapeHtml(name) + '</code></span></label>';
 		}).join('');
-		root.querySelector('[data-screen-content]').innerHTML = translateMarkup('<section class="sblc-panel sblc-settings"><h2>Settings</h2><p class="sblc-settings-intro">Requests stay on this WordPress server. The plugin does not use an account, cloud scanner, tracking, or link credits.</p><form data-settings-form><div class="sblc-settings-section"><h3>Verification safety</h3><div class="sblc-field-grid"><div class="sblc-field"><label for="sblc-batch">Resources per worker request</label><input class="sblc-input" id="sblc-batch" name="batch_size" type="number" min="1" max="25" value="' + escapeHtml(settings.batch_size) + '" /><p class="sblc-help">URLs are checked in bounded groups; new source content waits until the current group is decided.</p></div><div class="sblc-field"><label for="sblc-parallel">Parallel URL checks</label><input class="sblc-input" id="sblc-parallel" name="parallel_requests" type="number" min="1" max="8" value="' + escapeHtml(settings.parallel_requests || 4) + '" /><p class="sblc-help">Higher values can finish sooner, but increase concurrent network use. Lower the limit if scans use too many resources or remote sites return 429.</p></div><div class="sblc-field"><label for="sblc-timeout">Request timeout, seconds</label><input class="sblc-input" id="sblc-timeout" name="timeout" type="number" min="3" max="60" value="' + escapeHtml(settings.timeout) + '" /></div><div class="sblc-field"><label for="sblc-redirects">Maximum redirect hops</label><input class="sblc-input" id="sblc-redirects" name="max_redirects" type="number" min="0" max="15" value="' + escapeHtml(settings.max_redirects) + '" /></div><div class="sblc-field"><label for="sblc-retries">Temporary failure retries</label><input class="sblc-input" id="sblc-retries" name="max_retries" type="number" min="0" max="4" value="' + escapeHtml(settings.max_retries) + '" /></div></div></div><div class="sblc-settings-section"><h3>Content sources</h3><div class="sblc-field-grid"><div class="sblc-field sblc-field-full"><label>Public post types</label><div class="sblc-field-grid">' + typeFields + '</div><p class="sblc-help">Leave all unchecked to include every public post type except attachments and menu items.</p></div><label class="sblc-check"><input type="checkbox" name="include_comments"' + (settings.include_comments ? ' checked' : '') + ' /> <span>Scan approved comments</span></label><label class="sblc-check"><input type="checkbox" name="include_menus"' + (settings.include_menus ? ' checked' : '') + ' /> <span>Scan navigation menu URLs</span></label><label class="sblc-check"><input type="checkbox" name="include_featured_images"' + (settings.include_featured_images ? ' checked' : '') + ' /> <span>Check featured images</span></label><label class="sblc-check"><input type="checkbox" name="include_custom_fields"' + (settings.include_custom_fields ? ' checked' : '') + ' /> <span>Read scalar custom-field and builder data</span></label><label class="sblc-check"><input type="checkbox" name="check_internal_links"' + (settings.check_internal_links ? ' checked' : '') + ' /> <span>Check internal links</span></label><label class="sblc-check"><input type="checkbox" name="check_external_links"' + (settings.check_external_links ? ' checked' : '') + ' /> <span>Check external links</span></label><div class="sblc-field sblc-field-full"><label for="sblc-meta-keys">Limit custom-field keys (one per line, optional)</label><textarea class="sblc-input" id="sblc-meta-keys" name="custom_meta_keys" rows="3">' + escapeHtml((settings.custom_meta_keys || []).join('\n')) + '</textarea><p class="sblc-help">Builder metadata is read-only in this release; it is never rewritten blindly.</p></div></div></div><div class="sblc-settings-section"><h3>Exclusions and lifecycle</h3><div class="sblc-field-grid"><div class="sblc-field"><label for="sblc-excluded-domains">Excluded domains (one per line)</label><textarea class="sblc-input" id="sblc-excluded-domains" name="excluded_domains" rows="3">' + escapeHtml((settings.excluded_domains || []).join('\n')) + '</textarea></div><div class="sblc-field"><label for="sblc-excluded-fragments">Excluded URL fragments (one per line)</label><textarea class="sblc-input" id="sblc-excluded-fragments" name="excluded_url_fragments" rows="3">' + escapeHtml((settings.excluded_url_fragments || []).join('\n')) + '</textarea></div><div class="sblc-field"><label for="sblc-schedule">Scheduled scans</label><select class="sblc-select" id="sblc-schedule" name="schedule"><option value="manual"' + ('manual' === settings.schedule ? ' selected' : '') + '>Manual only</option><option value="daily"' + ('daily' === settings.schedule ? ' selected' : '') + '>Daily</option><option value="weekly"' + ('weekly' === settings.schedule ? ' selected' : '') + '>Weekly</option></select><p class="sblc-help">Scheduled work starts a bounded scan from WP-Cron. Manual scanning remains available if cron is delayed.</p></div><label class="sblc-check"><input type="checkbox" name="email_notifications"' + (settings.email_notifications ? ' checked' : '') + ' /> <span>Email a local summary when a scan completes</span></label><div class="sblc-field"><label for="sblc-email">Notification email</label><input class="sblc-input" id="sblc-email" name="notification_email" type="email" value="' + escapeHtml(settings.notification_email || '') + '" /></div><label class="sblc-check"><input type="checkbox" name="delete_data_on_uninstall"' + (settings.delete_data_on_uninstall ? ' checked' : '') + ' /> <span>Delete findings when the plugin is uninstalled</span></label></div></div><div class="sblc-actions">' + button(t('Save settings'), 'save-settings', 'sblc-button-primary') + '</div></form></section>');
+		root.querySelector('[data-screen-content]').innerHTML = translateMarkup('<section class="sblc-panel sblc-settings"><h2>Settings</h2><p class="sblc-settings-intro">Requests stay on this WordPress server. The plugin does not use an account, cloud scanner, tracking, or link credits.</p><form data-settings-form><div class="sblc-settings-section"><h3>Verification safety</h3><div class="sblc-field-grid"><div class="sblc-field"><label for="sblc-batch">Resources per worker request</label><input class="sblc-input" id="sblc-batch" name="batch_size" type="number" min="1" max="10" value="' + escapeHtml(settings.batch_size) + '" /><p class="sblc-help">The worker caps this at ten and lowers it when PHP memory is tight.</p></div><div class="sblc-field"><label for="sblc-parallel">Parallel URL checks</label><input class="sblc-input" id="sblc-parallel" name="parallel_requests" type="number" min="1" max="4" value="' + escapeHtml(settings.parallel_requests || 3) + '" /><p class="sblc-help">The worker caps this at four and lowers it when PHP memory is tight.</p></div><div class="sblc-field"><label for="sblc-timeout">Request timeout, seconds</label><input class="sblc-input" id="sblc-timeout" name="timeout" type="number" min="3" max="60" value="' + escapeHtml(settings.timeout) + '" /></div><div class="sblc-field"><label for="sblc-redirects">Maximum redirect hops</label><input class="sblc-input" id="sblc-redirects" name="max_redirects" type="number" min="0" max="15" value="' + escapeHtml(settings.max_redirects) + '" /></div><div class="sblc-field"><label for="sblc-retries">Temporary failure retries</label><input class="sblc-input" id="sblc-retries" name="max_retries" type="number" min="0" max="4" value="' + escapeHtml(settings.max_retries) + '" /></div></div></div><div class="sblc-settings-section"><h3>Content sources</h3><div class="sblc-field-grid"><div class="sblc-field sblc-field-full"><label>Public post types</label><div class="sblc-field-grid">' + typeFields + '</div><p class="sblc-help">Leave all unchecked to include every public post type except attachments and menu items.</p></div><label class="sblc-check"><input type="checkbox" name="include_comments"' + (settings.include_comments ? ' checked' : '') + ' /> <span>Scan approved comments</span></label><label class="sblc-check"><input type="checkbox" name="include_menus"' + (settings.include_menus ? ' checked' : '') + ' /> <span>Scan navigation menu URLs</span></label><label class="sblc-check"><input type="checkbox" name="include_featured_images"' + (settings.include_featured_images ? ' checked' : '') + ' /> <span>Check featured images</span></label><label class="sblc-check"><input type="checkbox" name="include_custom_fields"' + (settings.include_custom_fields ? ' checked' : '') + ' /> <span>Read scalar custom-field and builder data</span></label><label class="sblc-check"><input type="checkbox" name="check_internal_links"' + (settings.check_internal_links ? ' checked' : '') + ' /> <span>Check internal links</span></label><label class="sblc-check"><input type="checkbox" name="check_external_links"' + (settings.check_external_links ? ' checked' : '') + ' /> <span>Check external links</span></label><div class="sblc-field sblc-field-full"><label for="sblc-meta-keys">Limit custom-field keys (one per line, optional)</label><textarea class="sblc-input" id="sblc-meta-keys" name="custom_meta_keys" rows="3">' + escapeHtml((settings.custom_meta_keys || []).join('\n')) + '</textarea><p class="sblc-help">Builder metadata is read-only in this release; it is never rewritten blindly.</p></div></div></div><div class="sblc-settings-section"><h3>Exclusions and lifecycle</h3><div class="sblc-field-grid"><div class="sblc-field"><label for="sblc-excluded-domains">Excluded domains (one per line)</label><textarea class="sblc-input" id="sblc-excluded-domains" name="excluded_domains" rows="3">' + escapeHtml((settings.excluded_domains || []).join('\n')) + '</textarea></div><div class="sblc-field"><label for="sblc-excluded-fragments">Excluded URL fragments (one per line)</label><textarea class="sblc-input" id="sblc-excluded-fragments" name="excluded_url_fragments" rows="3">' + escapeHtml((settings.excluded_url_fragments || []).join('\n')) + '</textarea></div><div class="sblc-field"><label for="sblc-schedule">Scheduled scans</label><select class="sblc-select" id="sblc-schedule" name="schedule"><option value="manual"' + ('manual' === settings.schedule ? ' selected' : '') + '>Manual only</option><option value="daily"' + ('daily' === settings.schedule ? ' selected' : '') + '>Daily</option><option value="weekly"' + ('weekly' === settings.schedule ? ' selected' : '') + '>Weekly</option></select><p class="sblc-help">Scheduled work starts a bounded scan from WP-Cron. Manual scanning remains available if cron is delayed.</p></div><label class="sblc-check"><input type="checkbox" name="email_notifications"' + (settings.email_notifications ? ' checked' : '') + ' /> <span>Email a local summary when a scan completes</span></label><div class="sblc-field"><label for="sblc-email">Notification email</label><input class="sblc-input" id="sblc-email" name="notification_email" type="email" value="' + escapeHtml(settings.notification_email || '') + '" /></div><label class="sblc-check"><input type="checkbox" name="delete_data_on_uninstall"' + (settings.delete_data_on_uninstall ? ' checked' : '') + ' /> <span>Delete findings when the plugin is uninstalled</span></label></div></div><div class="sblc-actions">' + button(t('Save settings'), 'save-settings', 'sblc-button-primary') + '</div></form></section>');
 	}
 
 	function setDrawerBackgroundHidden( hidden ) {
@@ -296,7 +374,8 @@
 		if (close) { close.focus(); }
 	}
 
-	function refresh() {
+	function refresh(options) {
+		var shouldResume = !options || options.resumeScan !== false;
 		if (state.screen === 'settings') {
 			root.querySelector('[data-screen-content]').innerHTML = '<div class="sblc-loading">' + escapeHtml(t('Loading settings…')) + '</div>';
 			return api('/settings').then(renderSettings).catch(function (error) { notice(error.message, 'error'); });
@@ -304,13 +383,34 @@
 		if (!root.querySelector('[data-screen-content] .sblc-toolbar')) {
 			root.querySelector('[data-screen-content]').innerHTML = '<div class="sblc-loading">' + escapeHtml(t('Loading findings…')) + '</div>';
 		}
+		var requestId = ++state.refreshId;
 		var query = '?page=' + state.page + '&per_page=' + state.perPage + '&status=' + encodeURIComponent(state.status) + '&type=' + encodeURIComponent(state.type) + '&scope=' + encodeURIComponent(state.scope) + '&search=' + encodeURIComponent(state.search);
-		return Promise.all([api('/dashboard'), api('/resources' + query)]).then(function (responses) {
+		var dashboardRequest = api('/dashboard');
+		var progressRequest = dashboardRequest.then(function (dashboard) {
+			if (requestId === state.refreshId) {
+				state.lastProgress = dashboard.progress;
+				if ( ! isActiveScan( dashboard.progress ) ) {
+					clearLiveNotice();
+					window.clearTimeout(state.reconcileTimer);
+					state.reconcileTimer = null;
+					state.unchangedSteps = 0;
+					state.lastStepProgressKey = '';
+				}
+				showActiveScan(dashboard.progress);
+				if (shouldResume) { resumeActiveScan(dashboard.progress); }
+			}
+			return dashboard;
+		});
+		return Promise.all([progressRequest, api('/resources' + query)]).then(function (responses) {
+			if (requestId !== state.refreshId) { return; }
 			var dashboard = responses[0];
 			dashboard.list = responses[1];
 			state.lastProgress = dashboard.progress;
 			renderFindings(dashboard);
-		}).catch(function (error) { notice(error.message, 'error'); });
+			if (shouldResume) { resumeActiveScan(dashboard.progress); }
+		}).catch(function (error) {
+			if (requestId === state.refreshId) { notice(error.message, 'error'); }
+		});
 	}
 
 	function scheduleMonitor(scanId, delay, retryCount) {
@@ -326,22 +426,53 @@
 		retryCount = Number(retryCount) || 0;
 		state.monitoring = true;
 		post('/scan/step', { scan_id: scanId }).then(function (progress) {
+			var nextKey = progressKey(progress);
+			if (isActiveScan(progress) && nextKey === state.lastStepProgressKey) {
+				state.unchangedSteps += 1;
+			} else {
+				state.unchangedSteps = 0;
+			}
+			state.lastStepProgressKey = nextKey;
 			state.lastProgress = progress;
+			showActiveScan(progress);
 			return refresh().then(function () {
 				state.monitoring = false;
 				var latest = state.lastProgress || progress;
 				if (latest.state === 'discovering' || latest.state === 'checking' || latest.state === 'cancelling') {
-					scheduleMonitor(latest.scan_id, 1600, 0);
+					if (state.unchangedSteps >= 45) {
+						notice(t('The scan has not advanced. Automatic polling stopped; refresh this page to check its status.'), 'error');
+						return;
+					}
+					scheduleMonitor(latest.scan_id, state.unchangedSteps >= 3 ? 5000 : 1600, 0);
+				} else {
+					state.unchangedSteps = 0;
+					state.lastStepProgressKey = '';
+					window.clearTimeout(state.reconcileTimer);
+					state.reconcileTimer = null;
 				}
 			});
-		}).catch(function (error) {
+		}).catch(function () {
 			state.monitoring = false;
-			notice(error.message, 'error');
-			var current = state.lastProgress;
-			if (current && Number(current.scan_id) === Number(scanId) && ['discovering', 'checking', 'cancelling'].indexOf(current.state) !== -1) {
-				/* Retry transient REST/network failures while the server-side scan remains active. */
-				scheduleMonitor(scanId, Math.min(10000, 1000 * Math.pow(2, Math.min(retryCount, 3))), retryCount + 1);
-			}
+			refresh({ resumeScan: false }).then(function () {
+				var latest = state.lastProgress;
+				if ( ! isActiveScan( latest ) || Number( latest.scan_id ) !== Number( scanId ) ) {
+					return;
+				}
+				if ( retryCount >= 6 ) {
+					notice(t('The scan worker is not responding. Automatic retries stopped; refresh this page to try again.'), 'error');
+					window.clearTimeout(state.reconcileTimer);
+					state.reconcileTimer = window.setTimeout(function () {
+						state.reconcileTimer = null;
+						refresh({ resumeScan: false }).then(function () {
+							if (isActiveScan(state.lastProgress)) {
+								notice(t('The scan is still active. Refresh this page to resume it.'), 'error');
+							}
+						});
+					}, 60000);
+					return;
+				}
+				scheduleMonitor(scanId, Math.min(8000, 1000 * Math.pow(2, Math.min(retryCount, 3))), retryCount + 1);
+			});
 		});
 	}
 

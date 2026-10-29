@@ -2,7 +2,7 @@
 # This file is distributed under the GPLv2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.10\n"
+"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.12\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/linksolva-broken-link-checker\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -311,8 +311,12 @@ msgstr ""
 msgid "Resources per worker request"
 msgstr ""
 
-#: admin/class-admin.php:118
-msgid "Small batches keep wp-admin responsive."
+#: admin/class-admin.php:120
+msgid "The worker caps this at ten and lowers it when PHP memory is tight."
+msgstr ""
+
+#: admin/class-admin.php:121
+msgid "The worker caps this at four and lowers it when PHP memory is tight."
 msgstr ""
 
 #: admin/class-admin.php:119
@@ -531,8 +535,24 @@ msgstr ""
 msgid "No findings match these filters."
 msgstr ""
 
+#: admin/class-admin.php
+msgid "The scan has not advanced. Automatic polling stopped; refresh this page to check its status."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "The scan worker is not responding. Automatic retries stopped; refresh this page to try again."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "The scan is still active. Refresh this page to resume it."
+msgstr ""
+
 #: admin/class-admin.php:173
 msgid "Scan started. Discovery and verification will run in small bounded requests."
+msgstr ""
+
+#: assets/js/admin.js
+msgid "The scan status request timed out."
 msgstr ""
 
 #: admin/class-admin.php:174
@@ -633,6 +653,14 @@ msgstr ""
 
 #: includes/class-http-checker.php:162
 msgid "This URL was not requested because it failed the local safety checks."
+msgstr ""
+
+#: includes/class-http-checker.php:164
+msgid "Skipped for review"
+msgstr ""
+
+#: includes/class-http-checker.php:165
+msgid "This URL was skipped because the worker reached its time limit before verification finished. Review it manually or select Recheck to try again."
 msgstr ""
 
 #: includes/class-http-checker.php:204
@@ -936,12 +964,36 @@ msgstr ""
 msgid "Reading WordPress content. Each URL is verified before more sources are fetched."
 msgstr ""
 
-#: includes/class-scanner.php:347
-msgid "Verifying unique URLs with bounded local requests."
+#: includes/class-scanner.php:353
+#, php-format
+msgid "Verifying unique URLs (%1$d of %2$d complete)."
 msgstr ""
 
 #: includes/class-scanner.php:349
 msgid "Scan completed."
+msgstr ""
+
+#: includes/class-scanner.php:358
+#, php-format
+msgid "Scan completed. %d URL could not be verified and needs manual review."
+msgid_plural "Scan completed. %d URLs could not be verified and need manual review."
+msgstr[0] ""
+msgstr[1] ""
+
+#: includes/class-database.php
+msgid "The scan worker stopped responding before this URL could be verified. Review it manually or select Recheck to try again."
+msgstr ""
+
+#: includes/class-scanner.php
+msgid "The scan could not save its remaining URL results. Review the report and run another scan."
+msgstr ""
+
+#: includes/class-scanner.php
+msgid "The scan stopped because some URLs could not be recorded. Review the report and run another scan."
+msgstr ""
+
+#: includes/class-scanner.php
+msgid "The scan stopped during source discovery because the worker stopped responding. Its report may be incomplete; start a new scan to continue."
 msgstr ""
 
 #: includes/class-scanner.php:351
@@ -966,6 +1018,13 @@ msgid ""
 "\n"
 "Open the WordPress admin to review evidence and source locations."
 msgstr ""
+
+#: includes/class-scanner.php:531
+#, php-format
+msgid "Timed out or skipped for manual review: %d URL.\n"
+msgid_plural "Timed out or skipped for manual review: %d URLs.\n"
+msgstr[0] ""
+msgstr[1] ""
 
 #. translators: %s: Title of the post that received the comment.
 #: includes/class-sources.php:190

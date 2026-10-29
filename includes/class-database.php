@@ -177,16 +177,15 @@ final class Database {
 	}
 
 	/**
-	 * Fetch active scan, excluding old abandoned records.
+	 * Fetch the newest active scan; Scanner reconciles stale rows before resuming.
 	 *
 	 * @return object|null
 	 */
 	public static function get_active_scan() {
 		global $wpdb;
-		$table  = self::tables()['scans'];
-		$cutoff = gmdate( 'Y-m-d H:i:s', time() - 1800 );
+		$table = self::tables()['scans'];
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct, uncached access.
-		return $wpdb->get_row( $wpdb->prepare( "SELECT * FROM %i WHERE state IN ('discovering','checking','cancelling') AND updated_at >= %s ORDER BY id DESC LIMIT 1", $table, $cutoff ) );
+		return $wpdb->get_row( $wpdb->prepare( "SELECT * FROM %i WHERE state IN ('discovering','checking','cancelling') ORDER BY id DESC LIMIT 1", $table ) );
 	}
 
 	/**
@@ -240,12 +239,26 @@ final class Database {
 		global $wpdb;
 		$tables = self::tables();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Live scan progress must not be cached.
-		$total = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE last_scan_id = %d', $tables['resources'], absint( $scan_id ) ) );
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Live scan progress must not be cached.
-		$checked = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE last_scan_id = %d AND checked_scan_id = %d', $tables['resources'], absint( $scan_id ), absint( $scan_id ) ) );
+		$stats = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT COUNT(*) AS total_resources, SUM(CASE WHEN checked_scan_id = %d THEN 1 ELSE 0 END) AS checked_resources, SUM(CASE WHEN checked_scan_id = %d AND status IN ('timeout', 'unverified', 'redirect') AND error_code IN (%s, %s, %s, %s, %s) THEN 1 ELSE 0 END) AS skipped_resources FROM %i WHERE last_scan_id = %d",
+				absint( $scan_id ),
+				absint( $scan_id ),
+				'scan_time_limit',
+				'timeout',
+				'verification_deferred',
+				'redirect_deferred',
+				'scan_stalled',
+				$tables['resources'],
+				absint( $scan_id )
+			),
+			ARRAY_A
+		);
+		$stats = is_array( $stats ) ? $stats : array();
 		return array(
-			'total_resources'   => $total,
-			'checked_resources' => $checked,
+			'total_resources'   => isset( $stats['total_resources'] ) ? absint( $stats['total_resources'] ) : 0,
+			'checked_resources' => isset( $stats['checked_resources'] ) ? absint( $stats['checked_resources'] ) : 0,
+			'skipped_resources' => isset( $stats['skipped_resources'] ) ? absint( $stats['skipped_resources'] ) : 0,
 		);
 	}
 
@@ -331,6 +344,33 @@ final class Database {
 		$table = self::tables()['resources'];
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Live scan queue must not be cached.
 		return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE last_scan_id = %d AND COALESCE(checked_scan_id, 0) <> %d ORDER BY id ASC LIMIT %d', $table, absint( $scan_id ), absint( $scan_id ), absint( $limit ) ) );
+	}
+
+	/**
+	 * Mark unverified resources for a stalled scan as skipped for manual review.
+	 *
+	 * @param int $scan_id Scan ID.
+	 * @return int|false Number of updated resources or false on database error.
+	 */
+	public static function skip_pending_resources( $scan_id ) {
+		global $wpdb;
+		$table = self::tables()['resources'];
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Recovery must terminalize only this scan's unchecked resource rows.
+		return $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET status = %s, confidence = %s, http_code = 0, error_code = %s, status_text = %s, explanation = %s, final_url = url, redirect_chain = '[]', request_history = '[]', response_time = 0, last_checked = %s, next_check_at = NULL, checked_scan_id = %d WHERE last_scan_id = %d AND COALESCE(checked_scan_id, 0) <> %d",
+				$table,
+				'unverified',
+				'unverified',
+				'scan_stalled',
+				__( 'Skipped for review', 'linksolva-broken-link-checker' ),
+				__( 'The scan worker stopped responding before this URL could be verified. Review it manually or select Recheck to try again.', 'linksolva-broken-link-checker' ),
+				self::now(),
+				absint( $scan_id ),
+				absint( $scan_id ),
+				absint( $scan_id )
+			)
+		);
 	}
 
 	/**

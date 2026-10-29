@@ -36,6 +36,12 @@ The current release already provides much of this baseline: local scans, posts a
 - Add GitHub Actions checks for PHP 7.4 and 8.4 syntax, version consistency, and the official WordPress Plugin Check Action.
 - Keep the LinkSolva name, palette, and existing dashboard structure.
 
+## Release 1.0.12
+
+- Finish scans when URLs cannot be checked within the worker time budget, and report the skipped count for manual review.
+- Adjust worker duration, batch size, and parallel checks to PHP execution-time and memory headroom.
+- Keep CPU-quota behavior conservative because shared hosts do not expose a reliable per-account CPU signal.
+
 ## Priority work for the next product release
 
 ### P0: preserve trust during long scans
@@ -66,6 +72,7 @@ The current release already provides much of this baseline: local scans, posts a
 
 ## Release gates
 
+- Apply Antislop during implementation and review for every change to the dashboard design, plugin code, or user-facing copy. Check interface structure, accessibility and responsive states; code and comments for unnecessary boilerplate or redundant explanations; and copy for generic phrasing, unsupported claims, and unclear actions. Preserve the LinkSolva name and brand colors.
 - Plugin Check has no unreviewed findings; exceptions need a code-level reason and a narrow suppression.
 - PHP syntax passes on PHP 7.4 and a current PHP release.
 - Runtime smoke checks cover activation, deactivation, scan start and cancellation, URL status classes, redirect safety, settings sanitization, repair, and undo with `WP_DEBUG` enabled.
