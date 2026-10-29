@@ -961,7 +961,7 @@ msgid "Verifying discovered URLs before reading more sources (%1$d of %2$d compl
 msgstr ""
 
 #: includes/class-scanner.php:344
-msgid "Reading WordPress content and collecting URLs. Verification starts after discovery finishes."
+msgid "Checking while finding more URLs: %1$d of %2$d found so far checked. The percentage may change as more URLs are found."
 msgstr ""
 
 #: includes/class-scanner.php:353

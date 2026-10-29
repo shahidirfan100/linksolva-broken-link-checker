@@ -108,10 +108,16 @@ final class Scanner {
 		$deadline = microtime( true ) + $limits['execution_seconds'];
 		try {
 			if ( 'discovering' === $scan->state ) {
-				self::discover( $scan, $deadline, $limits['batch_size'] );
+				$pending = Database::resources_for_scan( $scan->id, 1 );
+				if ( null === $pending ) {
+					throw new \RuntimeException( 'Could not read the URL queue.' );
+				}
+				if ( empty( $pending ) ) {
+					self::discover( $scan, $deadline, $limits['batch_size'] );
+				}
 			}
 			$scan = Database::get_scan( $scan_id );
-			if ( $scan && 'checking' === $scan->state && microtime( true ) < $deadline ) {
+			if ( $scan && in_array( $scan->state, array( 'discovering', 'checking' ), true ) && microtime( true ) < $deadline ) {
 				self::check_resources( $scan, $deadline );
 			}
 			$scan = Database::get_scan( $scan_id );
@@ -423,12 +429,13 @@ final class Scanner {
 		$stats = Database::scan_stats( $scan->id );
 		$phase = 'discovering' === $scan->state ? 'discovery' : ( 'checking' === $scan->state ? 'verification' : $scan->state );
 		$percent = 0;
-		if ( 'checking' === $scan->state || in_array( $scan->state, array( 'completed', 'cancelled', 'failed' ), true ) ) {
+		if ( in_array( $scan->state, array( 'discovering', 'checking', 'completed', 'cancelled', 'failed' ), true ) ) {
 			$percent = $stats['total_resources'] ? min( 100, (int) floor( ( $stats['checked_resources'] / $stats['total_resources'] ) * 100 ) ) : ( 'completed' === $scan->state ? 100 : 0 );
 		}
 		$counts = json_decode( $scan->counts, true );
 		if ( 'discovering' === $scan->state ) {
-			$message = __( 'Reading WordPress content and collecting URLs. Verification starts after discovery finishes.', 'linksolva-broken-link-checker' );
+			/* translators: 1: checked URL count, 2: URLs found so far. */
+			$message = sprintf( __( 'Checking while finding more URLs: %1$d of %2$d found so far checked. The percentage may change as more URLs are found.', 'linksolva-broken-link-checker' ), absint( $stats['checked_resources'] ), absint( $stats['total_resources'] ) );
 		} elseif ( 'checking' === $scan->state ) {
 			/* translators: 1: Checked URL count, 2: Total URL count. */
 			$message = sprintf( __( 'Verifying unique URLs (%1$d of %2$d complete).', 'linksolva-broken-link-checker' ), absint( $stats['checked_resources'] ), absint( $stats['total_resources'] ) );

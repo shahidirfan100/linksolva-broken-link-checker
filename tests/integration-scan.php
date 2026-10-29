@@ -11,29 +11,29 @@ function sblc_assert( $condition, $message ) {
 function sblc_complete_scan( $progress, $check_delay = false ) {
 	global $wpdb;
 	$scan_id = $progress['scan_id'];
-	$last_percent = 0;
-	$saw_progress = false;
+	$saw_early_check = 'discovering' === $progress['state'] && $progress['stats']['checked_resources'] > 0 && $progress['processed_sources'] < 3;
 	$checked_delay = false;
 	for ( $i = 0; $i < 100 && in_array( $progress['state'], array( 'discovering', 'checking' ), true ); ++$i ) {
-		if ( $check_delay && ! $checked_delay && 'checking' === $progress['state'] && $progress['stats']['checked_resources'] < $progress['stats']['total_resources'] ) {
+		if ( $check_delay && ! $checked_delay && 'discovering' === $progress['state'] && $progress['stats']['checked_resources'] > 0 ) {
 			$wpdb->update( Database::tables()['scans'], array( 'updated_at' => gmdate( 'Y-m-d H:i:s', time() - 600 ) ), array( 'id' => $scan_id ) );
 			$delayed = Scanner::latest_progress();
-			sblc_assert( 'checking' === $delayed['state'] && $delayed['stats']['checked_resources'] === $progress['stats']['checked_resources'], 'A delayed worker incorrectly completed the scan.' );
+			sblc_assert( 'discovering' === $delayed['state'] && $delayed['stats']['checked_resources'] === $progress['stats']['checked_resources'], 'A delayed worker incorrectly completed the scan.' );
 			$checked_delay = true;
+		}
+		if ( $progress['stats']['total_resources'] > 0 ) {
+			$expected = (int) floor( 100 * $progress['stats']['checked_resources'] / $progress['stats']['total_resources'] );
+			sblc_assert( $progress['percent'] === $expected, 'Displayed progress does not match URLs checked so far.' );
 		}
 		$progress = Scanner::step( $scan_id );
 		sblc_assert( ! is_wp_error( $progress ), 'Scan worker returned an error.' );
-		if ( 'checking' === $progress['state'] ) {
-			sblc_assert( $progress['percent'] >= $last_percent, 'Verification progress went backwards.' );
-			$saw_progress = $saw_progress || $progress['percent'] > $last_percent;
-			$last_percent = $progress['percent'];
-		}
+		$saw_early_check = $saw_early_check || ( 'discovering' === $progress['state'] && $progress['stats']['checked_resources'] > 0 && $progress['processed_sources'] < 3 );
 	}
 	sblc_assert( 'completed' === $progress['state'], 'The fixture scan did not complete.' );
 	sblc_assert( 100 === $progress['percent'] && $progress['stats']['total_resources'] >= 3, 'Completed scan counts are incorrect.' );
 	if ( $check_delay ) {
-		sblc_assert( $checked_delay && $saw_progress, 'The test did not exercise delayed continuation and visible progress.' );
+		sblc_assert( $checked_delay && $saw_early_check, 'The scan did not check URLs during discovery or resume after a delay.' );
 	}
+
 	return $progress;
 }
 update_option( 'sblc_settings', array_merge( get_option( 'sblc_settings', array() ), array( 'include_menus' => false, 'batch_size' => 1, 'parallel_requests' => 1, 'scan_history_limit' => 5 ) ), false );

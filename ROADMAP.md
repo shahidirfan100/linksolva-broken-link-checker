@@ -44,7 +44,7 @@ The current release already provides much of this baseline: local scans, posts a
 
 ## Release 1.0.14 candidate
 
-- Discover URLs before verification so the verification percentage uses a fixed total.
+- Check discovered URLs between source batches and show progress against URLs found so far, noting that the percentage can change as new URLs are discovered.
 - Keep scans resumable when cron is delayed; do not treat inactivity alone as a failed URL.
 - Stop a new scan when the previous completed report cannot be saved and report database failures instead of assuming an empty queue.
 - Add a disposable WordPress/MySQL integration test for a completed scan and failed history save.

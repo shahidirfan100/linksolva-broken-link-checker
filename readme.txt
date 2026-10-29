@@ -44,7 +44,7 @@ Supported post content, approved comment content, and custom menu URLs can be re
 
 ### Resource controls
 
-Scanning runs in small resumable worker requests. The scanner first discovers URLs, then verifies them against a fixed total so verification progress is meaningful. Repeated occurrences do not re-queue a settled URL. Only one worker request processes the scan at a time. Worker duration follows PHP's execution-time limit. Batch size and parallel requests adjust to available PHP memory; no more than four URLs are checked at once. URLs that cannot be checked within a worker's time budget are marked unverified, counted, and shown for manual review instead of remaining queued. Network timeouts also remain unverified. PHP does not reliably expose shared-host CPU quotas, so the plugin uses conservative concurrency limits rather than claiming to measure CPU availability. Manual scanning remains available when WordPress cron is delayed.
+Scanning runs in small resumable worker requests. The scanner checks discovered URLs in small batches as it continues finding more. During discovery, the percentage shows the share of URLs found so far that have been checked; it can change as new URLs are found. Repeated occurrences do not re-queue a settled URL. Only one worker request processes the scan at a time. Worker duration follows PHP's execution-time limit. Batch size and parallel requests adjust to available PHP memory; no more than four URLs are checked at once. URLs that cannot be checked within a worker's time budget are marked unverified, counted, and shown for manual review instead of remaining queued. Network timeouts also remain unverified. PHP does not reliably expose shared-host CPU quotas, so the plugin uses conservative concurrency limits rather than claiming to measure CPU availability. Manual scanning remains available when WordPress cron is delayed.
 
 ### Privacy
 
@@ -106,7 +106,7 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 == Changelog ==
 
 = 1.0.14 =
-* Keep scans resumable when scheduled workers are delayed and show verification progress against a fixed URL total.
+* Check links as they are discovered and show the percentage of URLs found so far that have been checked.
 * Prevent a new scan from clearing the current report if its history snapshot cannot be saved.
 * Report database errors instead of treating missing progress data as a completed scan.
 
