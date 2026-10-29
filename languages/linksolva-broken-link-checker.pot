@@ -2,7 +2,7 @@
 # This file is distributed under the GPLv2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.13\n"
+"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.14\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/linksolva-broken-link-checker\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -961,7 +961,7 @@ msgid "Verifying discovered URLs before reading more sources (%1$d of %2$d compl
 msgstr ""
 
 #: includes/class-scanner.php:344
-msgid "Reading WordPress content. Each URL is verified before more sources are fetched."
+msgid "Reading WordPress content and collecting URLs. Verification starts after discovery finishes."
 msgstr ""
 
 #: includes/class-scanner.php:353
@@ -1134,4 +1134,12 @@ msgstr ""
 
 #: admin/class-admin.php
 msgid "Broken / review / redirects / healthy"
+msgstr ""
+
+#: includes/class-scanner.php
+msgid "The previous scan could not be saved. No new scan was started; check database space and try again."
+msgstr ""
+
+#: includes/class-scanner.php
+msgid "The scan could not be started because its previous data could not be cleared."
 msgstr ""

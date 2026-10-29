@@ -212,9 +212,11 @@ final class Database {
 		$tables = self::tables();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Resetting plugin-owned scan state is intentionally direct.
 		$deleted = $wpdb->query( $wpdb->prepare( 'DELETE FROM %i', $tables['occurrences'] ) );
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Resetting plugin-owned scan state is intentionally direct.
-		$wpdb->query( $wpdb->prepare( 'UPDATE %i SET last_scan_id = 0, checked_scan_id = 0', $tables['resources'] ) );
-		return false !== $deleted;
+		if ( false === $deleted ) {
+			return false;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Reset markers so stale URLs are not shown in the new report.
+		return false !== $wpdb->query( $wpdb->prepare( 'UPDATE %i SET last_scan_id = 0, checked_scan_id = 0', $tables['resources'] ) );
 	}
 
 	/**
@@ -256,7 +258,9 @@ final class Database {
 			),
 			ARRAY_A
 		);
-		$stats = is_array( $stats ) ? $stats : array();
+		if ( ! is_array( $stats ) ) {
+			throw new \RuntimeException( 'Could not read scan statistics from the database.' );
+		}
 		return array(
 			'total_resources'   => isset( $stats['total_resources'] ) ? absint( $stats['total_resources'] ) : 0,
 			'checked_resources' => isset( $stats['checked_resources'] ) ? absint( $stats['checked_resources'] ) : 0,
@@ -285,7 +289,9 @@ final class Database {
 			return true;
 		}
 		$tables = self::tables();
-		self::delete_history_rows( $tables, array( $scan_id ) );
+		if ( ! self::delete_history_rows( $tables, array( $scan_id ) ) ) {
+			return false;
+		}
 
 		// Copy in SQL to avoid loading the site's full findings into PHP memory.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- A completed scan must be snapshotted before the live resource rows are reused.
@@ -363,7 +369,9 @@ final class Database {
 			return true;
 		}
 
-		self::delete_history_rows( $tables, $remove_ids );
+		if ( ! self::delete_history_rows( $tables, $remove_ids ) ) {
+			return false;
+		}
 		$placeholders = implode( ', ', array_fill( 0, count( $remove_ids ), '%d' ) );
 		$params       = array_merge( array( $tables['scans'] ), $remove_ids );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Each %d maps to a sanitized scan ID, and the table and IDs are prepared.
@@ -490,20 +498,23 @@ final class Database {
 	 *
 	 * @param array $tables   Plugin table names.
 	 * @param array $scan_ids Scan IDs.
-	 * @return void
+	 * @return bool
 	 */
 	private static function delete_history_rows( $tables, $scan_ids ) {
 		global $wpdb;
 		$scan_ids = array_values( array_filter( array_map( 'absint', $scan_ids ) ) );
 		if ( empty( $scan_ids ) ) {
-			return;
+			return true;
 		}
 		$placeholders = implode( ', ', array_fill( 0, count( $scan_ids ), '%d' ) );
 		foreach ( array( 'history_occurrences', 'history_resources' ) as $key ) {
 			$params = array_merge( array( $tables[ $key ] ), $scan_ids );
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Each %d maps to a sanitized scan ID, and the table and IDs are prepared.
-			$wpdb->query( $wpdb->prepare( "DELETE FROM %i WHERE scan_id IN ({$placeholders})", ...$params ) );
+			if ( false === $wpdb->query( $wpdb->prepare( "DELETE FROM %i WHERE scan_id IN ({$placeholders})", ...$params ) ) ) {
+				return false;
+			}
 		}
+		return true;
 	}
 
 	/**

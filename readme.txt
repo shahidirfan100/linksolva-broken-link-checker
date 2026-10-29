@@ -4,7 +4,7 @@ Tags: broken links, link checker, broken images, redirects, local scanner
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.13
+Stable tag: 1.0.14
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -44,7 +44,7 @@ Supported post content, approved comment content, and custom menu URLs can be re
 
 ### Resource controls
 
-Scanning runs in small resumable worker requests. Each discovered source batch is verified before the next source batch is read, and repeated occurrences do not re-queue a settled URL. Only one worker request processes the scan at a time. Worker duration follows PHP's execution-time limit. Batch size and parallel requests adjust to available PHP memory; no more than four URLs are checked at once. URLs that cannot be checked within a worker's time budget are marked unverified, counted, and shown for manual review instead of remaining queued. Network timeouts also remain unverified. PHP does not reliably expose shared-host CPU quotas, so the plugin uses conservative concurrency limits rather than claiming to measure CPU availability. Manual scanning remains available when WordPress cron is delayed.
+Scanning runs in small resumable worker requests. The scanner first discovers URLs, then verifies them against a fixed total so verification progress is meaningful. Repeated occurrences do not re-queue a settled URL. Only one worker request processes the scan at a time. Worker duration follows PHP's execution-time limit. Batch size and parallel requests adjust to available PHP memory; no more than four URLs are checked at once. URLs that cannot be checked within a worker's time budget are marked unverified, counted, and shown for manual review instead of remaining queued. Network timeouts also remain unverified. PHP does not reliably expose shared-host CPU quotas, so the plugin uses conservative concurrency limits rather than claiming to measure CPU availability. Manual scanning remains available when WordPress cron is delayed.
 
 ### Privacy
 
@@ -104,6 +104,11 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * WordPress cron may be delayed or disabled by hosting configuration. The findings screen provides manual worker progress.
 
 == Changelog ==
+
+= 1.0.14 =
+* Keep scans resumable when scheduled workers are delayed and show verification progress against a fixed URL total.
+* Prevent a new scan from clearing the current report if its history snapshot cannot be saved.
+* Report database errors instead of treating missing progress data as a completed scan.
 
 = 1.0.13 =
 * Added configurable retention for 5, 10, or 25 completed scans, with an option to turn history off.
@@ -180,6 +185,9 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * Added evidence-based HTTP classifications, URL deduplication, bounded scanning, safe repairs, and conflict-aware undo.
 
 == Upgrade Notice ==
+
+= 1.0.14 =
+Improves scan progress reporting and protects the previous report when history cannot be saved.
 
 = 1.0.13 =
 Completed scans can now be saved and reviewed later. Choose the number of completed runs to retain in Settings.

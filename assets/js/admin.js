@@ -236,7 +236,7 @@
 	}
 
 	function scanStatusMarkup(progress) {
-		return translateMarkup('<div class="sblc-scan-status" role="status"><strong>' + escapeHtml(progress.phase === 'discovery' ? t('Discovering sources') : t('Verifying resources')) + '</strong><span>' + escapeHtml(progress.message || '') + '</span><div class="sblc-progress" aria-label="Scan progress"><span style="width:' + escapeHtml(progress.percent || 0) + '%"></span></div><span>' + escapeHtml(progress.percent || 0) + '%</span>' + button(t('Stop scan'), 'cancel-scan', 'sblc-button-danger', ' data-scan-id="' + escapeHtml(progress.scan_id) + '"') + '</div>');
+		return translateMarkup('<div class="sblc-scan-status" role="status"><strong>' + escapeHtml(progress.phase === 'discovery' ? t('Discovering sources') : t('Verifying resources')) + '</strong><span>' + escapeHtml(progress.message || '') + '</span>' + (progress.phase === 'discovery' ? '' : '<div class="sblc-progress" aria-label="Scan progress"><span style="width:' + escapeHtml(progress.percent || 0) + '%"></span></div><span>' + escapeHtml(progress.percent || 0) + '%</span>') + '' + button(t('Stop scan'), 'cancel-scan', 'sblc-button-danger', ' data-scan-id="' + escapeHtml(progress.scan_id) + '"') + '</div>');
 	}
 
 	function showActiveScan(progress) {

@@ -83,3 +83,40 @@ jobs:
           build-dir: ./build/linksolva-broken-link-checker
           wp-version: latest
           strict: true
+
+  wordpress-integration:
+    name: WordPress scan integration
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: wordpress
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mysqli, curl, dom, mbstring
+          coverage: none
+      - name: Set up disposable WordPress site
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar -o /tmp/wp.phar
+          mkdir -p /tmp/linksolva-wp
+          php /tmp/wp.phar core download --path=/tmp/linksolva-wp --quiet
+          php /tmp/wp.phar config create --path=/tmp/linksolva-wp --dbname=wordpress --dbuser=root --dbpass=root --dbhost=127.0.0.1:3306 --extra-php <<'PHP'
+          define( 'WP_DEBUG', true );
+          define( 'WP_DEBUG_DISPLAY', true );
+          PHP
+          php /tmp/wp.phar core install --path=/tmp/linksolva-wp --url=http://localhost --title=Test --admin_user=admin --admin_password=test-password --admin_email=admin@example.com --skip-email
+          mkdir -p /tmp/linksolva-wp/wp-content/plugins/linksolva-broken-link-checker
+          cp -R . /tmp/linksolva-wp/wp-content/plugins/linksolva-broken-link-checker/
+          php /tmp/wp.phar plugin activate linksolva-broken-link-checker --path=/tmp/linksolva-wp
+      - name: Exercise real scan and history failure
+        run: php /tmp/wp.phar eval-file tests/integration-scan.php --path=/tmp/linksolva-wp

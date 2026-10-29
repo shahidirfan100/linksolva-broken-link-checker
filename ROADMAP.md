@@ -42,6 +42,14 @@ The current release already provides much of this baseline: local scans, posts a
 - Adjust worker duration, batch size, and parallel checks to PHP execution-time and memory headroom.
 - Keep CPU-quota behavior conservative because shared hosts do not expose a reliable per-account CPU signal.
 
+## Release 1.0.14 candidate
+
+- Discover URLs before verification so the verification percentage uses a fixed total.
+- Keep scans resumable when cron is delayed; do not treat inactivity alone as a failed URL.
+- Stop a new scan when the previous completed report cannot be saved and report database failures instead of assuming an empty queue.
+- Add a disposable WordPress/MySQL integration test for a completed scan and failed history save.
+- Release blockers: test the candidate on WordPress, handle interrupted workers with targeted recovery, and bound history snapshots for large sites. Benchmark resource use before performance claims.
+
 ## Priority work for the next product release
 
 ### P0: preserve trust during long scans
