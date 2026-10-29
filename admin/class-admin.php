@@ -92,6 +92,8 @@ final class Admin {
 					'Queued'                              => __( 'Queued', 'linksolva-broken-link-checker' ),
 					'Link scope'                          => __( 'Link scope', 'linksolva-broken-link-checker' ),
 					'All links'                           => __( 'All links', 'linksolva-broken-link-checker' ),
+					'Clear filters'                       => __( 'Clear filters', 'linksolva-broken-link-checker' ),
+					'Findings are grouped by URL, with every source location retained. Summary totals include all links; status filters reflect the selected scope, type and search.' => __( 'Findings are grouped by URL, with every source location retained. Summary totals include all links; status filters reflect the selected scope, type and search.', 'linksolva-broken-link-checker' ),
 					'Internal links'                      => __( 'Internal links', 'linksolva-broken-link-checker' ),
 					'External links'                      => __( 'External links', 'linksolva-broken-link-checker' ),
 					'Internal'                            => __( 'Internal', 'linksolva-broken-link-checker' ),

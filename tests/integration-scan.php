@@ -84,6 +84,21 @@ $request = new WP_REST_Request( 'GET', '/sblc/v1/history/' . $first_id . '/resou
 $request->set_param( 'per_page', 1 );
 $page = rest_do_request( $request );
 sblc_assert( 200 === $page->get_status() && 1 === count( $page->get_data()['items'] ) && $page->get_data()['total'] >= 3, 'History pagination failed.' );
+// Status counts must reflect the non-status filters applied to the live list.
+$ids = $wpdb->get_col( $wpdb->prepare( 'SELECT id FROM %i WHERE last_scan_id = %d ORDER BY id ASC', $tables['resources'], $scan_id ) );
+sblc_assert( count( $ids ) >= 3, 'Expected live URL fixtures.' );
+$wpdb->update( $tables['resources'], array( 'link_scope' => 'internal', 'status' => 'healthy' ), array( 'id' => $ids[0] ) );
+$wpdb->update( $tables['resources'], array( 'link_scope' => 'external', 'status' => 'unverified' ), array( 'id' => $ids[1] ) );
+$wpdb->update( $tables['resources'], array( 'link_scope' => 'external', 'status' => 'healthy' ), array( 'id' => $ids[2] ) );
+$filtered = new WP_REST_Request( 'GET', '/sblc/v1/resources' );
+$filtered->set_param( 'scope', 'external' );
+$filtered->set_param( 'status', 'healthy' );
+$response = rest_do_request( $filtered );
+$data = $response->get_data();
+sblc_assert( 200 === $response->get_status() && 2 === $data['filter_counts']['all'] && 1 === $data['filter_counts']['healthy'] && 1 === $data['total'] && 1 === count( $data['items'] ), 'Filtered status counts do not match the live results.' );
+$wpdb->update( $tables['resources'], array( 'status' => 'healthy' ), array( 'id' => $ids[1] ) );
+$data = rest_do_request( $filtered )->get_data();
+sblc_assert( 2 === $data['filter_counts']['healthy'] && 2 === $data['total'] && 2 === count( $data['items'] ), 'Live status counts and results did not refresh.' );
 foreach ( array( 0, 5, 10, 25 ) as $limit ) {
 	$sanitized = Settings::sanitize( array( 'scan_history_limit' => $limit ) );
 	sblc_assert( $limit === $sanitized['scan_history_limit'], 'A supported history retention option was rejected.' );

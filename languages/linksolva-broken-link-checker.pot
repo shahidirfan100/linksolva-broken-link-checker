@@ -2,7 +2,7 @@
 # This file is distributed under the GPLv2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.15\n"
+"Project-Id-Version: LinkSolva - Broken Link Checker 1.0.16\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/linksolva-broken-link-checker\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1142,4 +1142,12 @@ msgstr ""
 
 #: includes/class-scanner.php
 msgid "The scan could not be started because its previous data could not be cleared."
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Clear filters"
+msgstr ""
+
+#: admin/class-admin.php
+msgid "Findings are grouped by URL, with every source location retained. Summary totals include all links; status filters reflect the selected scope, type and search."
 msgstr ""

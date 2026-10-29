@@ -781,6 +781,7 @@ final class Database {
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Query fragments are allowlisted above and all values use placeholders.
 		$list_query = $wpdb->prepare( $list_sql, $list_params );
 		return array(
+			'filter_counts' => self::counts( $args ),
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Query is prepared from allowlisted clauses and must not be cached.
 			'total' => (int) $wpdb->get_var( $count_query ),
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Query is prepared from allowlisted clauses and must not be cached.
@@ -847,15 +848,34 @@ final class Database {
 	}
 
 	/**
-	 * Counts for dashboard.
+	 * Count statuses for the dashboard or the selected non-status filters.
 	 *
+	 * @param array $args Optional scope, type and search filters.
 	 * @return array
 	 */
-	public static function counts() {
+	public static function counts( $args = array() ) {
 		global $wpdb;
-		$table = self::tables()['resources'];
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Live dashboard counts must not be cached.
-		$rows = $wpdb->get_results( $wpdb->prepare( 'SELECT status, COUNT(*) AS total FROM %i WHERE last_scan_id > 0 GROUP BY status', $table ), ARRAY_A );
+		$table  = self::tables()['resources'];
+		$where  = array( 'last_scan_id > 0' );
+		$params = array( $table );
+		if ( ! empty( $args['scope'] ) && in_array( $args['scope'], array( 'internal', 'external' ), true ) ) {
+			$where[] = 'link_scope = %s';
+			$params[] = sanitize_key( $args['scope'] );
+		}
+		if ( ! empty( $args['type'] ) && 'all' !== $args['type'] ) {
+			$where[] = 'resource_type = %s';
+			$params[] = sanitize_key( $args['type'] );
+		}
+		if ( ! empty( $args['search'] ) ) {
+			$where[] = 'url LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( sanitize_text_field( $args['search'] ) ) . '%';
+		}
+		$where_sql = implode( ' AND ', $where );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Fixed clauses use separately prepared values and live counts cannot be cached.
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT status, COUNT(*) AS total FROM %i WHERE {$where_sql} GROUP BY status", $params ), ARRAY_A );
+		if ( ! is_array( $rows ) ) {
+			throw new \RuntimeException( 'Could not read finding counts from the database.' );
+		}
 		$out  = array(
 			'all'          => 0,
 			'broken'       => 0,

@@ -43,6 +43,9 @@ jobs:
       - name: Check scan status renderer
         run: node tests/scan-status-ui.js
 
+      - name: Check findings filter display
+        run: node tests/findings-filters-ui.js
+
       - name: Check release version consistency
         run: |
           python3 - <<'PY'
