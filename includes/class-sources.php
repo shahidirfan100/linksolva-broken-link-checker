@@ -68,7 +68,7 @@ final class Sources {
 		foreach ( $candidates as $candidate_index => $candidate ) {
 			$resource_id = Database::upsert_resource( $candidate['url'], $candidate['resource_type'], $scan_id );
 			if ( ! $resource_id ) {
-				continue;
+				throw new \RuntimeException( 'Could not save a discovered URL.' );
 			}
 			$occurrence_id = Database::add_occurrence(
 				array(
@@ -87,7 +87,10 @@ final class Sources {
 					'editable'         => ! empty( $source['editable'] ),
 				)
 			);
-			$count        += $occurrence_id ? 1 : 0;
+			if ( false === $occurrence_id ) {
+				throw new \RuntimeException( 'Could not save a URL source location.' );
+			}
+			$count += $occurrence_id ? 1 : 0;
 		}
 		return $count;
 	}

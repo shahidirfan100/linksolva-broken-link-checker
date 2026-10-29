@@ -45,7 +45,7 @@ final class Database {
 	 * @param string $url          Normalized URL.
 	 * @param string $type         Resource type.
 	 * @param int    $scan_id      Scan ID.
-	 * @return int
+	 * @return int|false
 	 */
 	public static function upsert_resource( $url, $type, $scan_id ) {
 		global $wpdb;
@@ -55,7 +55,10 @@ final class Database {
 		$scope  = Url::scope( $url );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct, uncached access.
 		$existing = $wpdb->get_row( $wpdb->prepare( 'SELECT id, last_scan_id, ignored FROM %i WHERE url_hash = %s LIMIT 1', $tables['resources'], $hash ) );
-		$id       = $existing ? (int) $existing->id : 0;
+		if ( ! empty( $wpdb->last_error ) ) {
+			return false;
+		}
+		$id = $existing ? (int) $existing->id : 0;
 
 		if ( $id ) {
 			$data    = array(
@@ -101,12 +104,12 @@ final class Database {
 				}
 			}
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct access.
-			$wpdb->update( $tables['resources'], $data, array( 'id' => $id ), $formats, array( '%d' ) );
-			return $id;
+			$updated = $wpdb->update( $tables['resources'], $data, array( 'id' => $id ), $formats, array( '%d' ) );
+			return false === $updated ? false : $id;
 		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct access.
-		$wpdb->insert(
+		$inserted = $wpdb->insert(
 			$tables['resources'],
 			array(
 				'url'           => $url,
@@ -123,14 +126,14 @@ final class Database {
 			),
 			array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d' )
 		);
-		return (int) $wpdb->insert_id;
+		return false === $inserted ? false : (int) $wpdb->insert_id;
 	}
 
 	/**
 	 * Add one source occurrence once.
 	 *
 	 * @param array $data Occurrence data.
-	 * @return int
+	 * @return int|false Zero for an existing occurrence, false on database error.
 	 */
 	public static function add_occurrence( $data ) {
 		global $wpdb;
@@ -138,12 +141,15 @@ final class Database {
 		$hash   = hash( 'sha256', wp_json_encode( array( $data['resource_id'], $data['scan_id'], $data['source_type'], $data['source_id'], $data['source_field'], $data['raw_url'], $data['location'], absint( $data['occurrence_index'] ) ) ) );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct, uncached access.
 		$found = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM %i WHERE occurrence_hash = %s LIMIT 1', $tables['occurrences'], $hash ) );
+		if ( ! empty( $wpdb->last_error ) ) {
+			return false;
+		}
 		if ( $found ) {
 			return 0;
 		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct access.
-		$wpdb->insert(
+		$inserted = $wpdb->insert(
 			$tables['occurrences'],
 			array(
 				'resource_id'     => absint( $data['resource_id'] ),
@@ -162,7 +168,7 @@ final class Database {
 			),
 			array( '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
 		);
-		return (int) $wpdb->insert_id;
+		return false === $inserted ? false : (int) $wpdb->insert_id;
 	}
 
 	/**

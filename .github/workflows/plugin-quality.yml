@@ -128,5 +128,7 @@ jobs:
         run: php /tmp/wp.phar eval-file tests/benchmark-scan.php --path=/tmp/linksolva-wp
       - name: Check duplicate sources and no-progress recovery
         run: php /tmp/wp.phar eval-file tests/integration-duplicate-scan.php --path=/tmp/linksolva-wp
+      - name: Check discovery database failures
+        run: php /tmp/wp.phar eval-file tests/integration-discovery-failure.php --path=/tmp/linksolva-wp
       - name: Exercise real scan and history failure
         run: php /tmp/wp.phar eval-file tests/integration-scan.php --path=/tmp/linksolva-wp

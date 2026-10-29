@@ -50,6 +50,13 @@ The current release already provides much of this baseline: local scans, posts a
 - Add a disposable WordPress/MySQL integration test for a completed scan and failed history save.
 - Release blockers: test the candidate on WordPress, handle interrupted workers with targeted recovery, and bound history snapshots for large sites. Benchmark resource use before performance claims.
 
+## Release 1.0.18 candidate review
+
+- Report database write failures during discovery instead of silently dropping URLs or source locations.
+- PRs #2, #3, and #4 are stacked; the newest branch includes the earlier changes. Validate the complete tree rather than publishing any earlier branch independently.
+- Release blockers remain: recovery after repeated hard PHP termination, bounded and resumable history snapshots, browser-level refresh and live-update coverage, repair and undo smoke tests, and large-site performance measurements with real HTTP traffic.
+- Security review must assess DNS rebinding between address validation and the subsequent network connection, including the parallel Requests path and redirect hops.
+
 ## Priority work for the next product release
 
 ### P0: preserve trust during long scans

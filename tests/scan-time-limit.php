@@ -6,7 +6,7 @@
 namespace {
 	define( 'ABSPATH', __DIR__ . '/' );
 	define( 'WPINC', 'wp-includes' );
-	define( 'LINKSOLVA_BLC_VERSION', '1.0.17' );
+	define( 'LINKSOLVA_BLC_VERSION', '1.0.18' );
 	class WP_HTTP_Requests_Hooks {}
 
 	$GLOBALS['sblc_test_options'] = array(
