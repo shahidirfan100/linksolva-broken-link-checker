@@ -17,6 +17,9 @@
 		perPage: 20,
 		monitoring: false,
 		monitorTimer: null,
+		reconcileTimer: null,
+		unchangedSteps: 0,
+		lastStepProgressKey: '',
 		refreshId: 0,
 		lastProgress: null,
 		drawerOpener: null,
@@ -107,6 +110,11 @@
 		}
 	}
 
+	function clearLiveNotice() {
+		var existing = root.querySelector('.sblc-notice-live');
+		if (existing) { existing.remove(); }
+	}
+
 	function button(label, action, extraClass, extra) {
 		return '<button type="button" class="sblc-button ' + (extraClass || 'sblc-button-secondary') + '" data-action="' + escapeHtml(action) + '"' + (extra || '') + '>' + escapeHtml(label) + '</button>';
 	}
@@ -192,6 +200,19 @@
 		return !!progress && ['discovering', 'checking', 'cancelling'].indexOf(progress.state) !== -1;
 	}
 
+	function progressKey(progress) {
+		var stats = progress && progress.stats ? progress.stats : {};
+		return [
+			progress && progress.scan_id || 0,
+			progress && progress.state || '',
+			progress && progress.phase || '',
+			stats.checked_resources || 0,
+			stats.total_resources || 0,
+			progress && progress.processed_sources || 0,
+			progress && progress.discovered_occurrences || 0
+		].join(':');
+	}
+
 	function scanStatusMarkup(progress) {
 		return translateMarkup('<div class="sblc-scan-status" role="status"><strong>' + escapeHtml(progress.phase === 'discovery' ? t('Discovering sources') : t('Verifying resources')) + '</strong><span>' + escapeHtml(progress.message || '') + '</span><div class="sblc-progress" aria-label="Scan progress"><span style="width:' + escapeHtml(progress.percent || 0) + '%"></span></div><span>' + escapeHtml(progress.percent || 0) + '%</span>' + button(t('Stop scan'), 'cancel-scan', 'sblc-button-danger', ' data-scan-id="' + escapeHtml(progress.scan_id) + '"') + '</div>');
 	}
@@ -230,6 +251,8 @@
 			? scanStatusMarkup(progress)
 			: progress.state === 'completed' && progress.stats && Number(progress.stats.skipped_resources) > 0
 				? '<div class="sblc-notice" role="status">' + escapeHtml(progress.message || '') + '</div>'
+				: progress.state === 'failed' && progress.message
+					? '<div class="sblc-notice" role="alert">' + escapeHtml(progress.message) + '</div>'
 				: '';
 		var statuses = [
 			['all', t('All'), counts.all], ['broken', t('Broken'), counts.broken], ['redirect', t('Redirects'), counts.redirect], ['needs_review', t('Needs review'), counts.needs_review], ['blocked', t('Blocked'), counts.blocked], ['healthy', t('Healthy'), counts.healthy], ['ignored', t('Ignored'), counts.ignored]
@@ -331,7 +354,8 @@
 		if (close) { close.focus(); }
 	}
 
-	function refresh() {
+	function refresh(options) {
+		var shouldResume = !options || options.resumeScan !== false;
 		if (state.screen === 'settings') {
 			root.querySelector('[data-screen-content]').innerHTML = '<div class="sblc-loading">' + escapeHtml(t('Loading settings…')) + '</div>';
 			return api('/settings').then(renderSettings).catch(function (error) { notice(error.message, 'error'); });
@@ -345,8 +369,15 @@
 		var progressRequest = dashboardRequest.then(function (dashboard) {
 			if (requestId === state.refreshId) {
 				state.lastProgress = dashboard.progress;
+				if ( ! isActiveScan( dashboard.progress ) ) {
+					clearLiveNotice();
+					window.clearTimeout(state.reconcileTimer);
+					state.reconcileTimer = null;
+					state.unchangedSteps = 0;
+					state.lastStepProgressKey = '';
+				}
 				showActiveScan(dashboard.progress);
-				resumeActiveScan(dashboard.progress);
+				if (shouldResume) { resumeActiveScan(dashboard.progress); }
 			}
 			return dashboard;
 		});
@@ -356,7 +387,7 @@
 			dashboard.list = responses[1];
 			state.lastProgress = dashboard.progress;
 			renderFindings(dashboard);
-			resumeActiveScan(dashboard.progress);
+			if (shouldResume) { resumeActiveScan(dashboard.progress); }
 		}).catch(function (error) {
 			if (requestId === state.refreshId) { notice(error.message, 'error'); }
 		});
@@ -375,23 +406,53 @@
 		retryCount = Number(retryCount) || 0;
 		state.monitoring = true;
 		post('/scan/step', { scan_id: scanId }).then(function (progress) {
+			var nextKey = progressKey(progress);
+			if (isActiveScan(progress) && nextKey === state.lastStepProgressKey) {
+				state.unchangedSteps += 1;
+			} else {
+				state.unchangedSteps = 0;
+			}
+			state.lastStepProgressKey = nextKey;
 			state.lastProgress = progress;
 			showActiveScan(progress);
 			return refresh().then(function () {
 				state.monitoring = false;
 				var latest = state.lastProgress || progress;
 				if (latest.state === 'discovering' || latest.state === 'checking' || latest.state === 'cancelling') {
-					scheduleMonitor(latest.scan_id, 1600, 0);
+					if (state.unchangedSteps >= 45) {
+						notice(t('The scan has not advanced. Automatic polling stopped; refresh this page to check its status.'), 'error');
+						return;
+					}
+					scheduleMonitor(latest.scan_id, state.unchangedSteps >= 3 ? 5000 : 1600, 0);
+				} else {
+					state.unchangedSteps = 0;
+					state.lastStepProgressKey = '';
+					window.clearTimeout(state.reconcileTimer);
+					state.reconcileTimer = null;
 				}
 			});
-		}).catch(function (error) {
+		}).catch(function () {
 			state.monitoring = false;
-			notice(error.message, 'error');
-			var current = state.lastProgress;
-			if (current && Number(current.scan_id) === Number(scanId) && ['discovering', 'checking', 'cancelling'].indexOf(current.state) !== -1) {
-				/* Retry transient REST/network failures while the server-side scan remains active. */
-				scheduleMonitor(scanId, Math.min(10000, 1000 * Math.pow(2, Math.min(retryCount, 3))), retryCount + 1);
-			}
+			refresh({ resumeScan: false }).then(function () {
+				var latest = state.lastProgress;
+				if ( ! isActiveScan( latest ) || Number( latest.scan_id ) !== Number( scanId ) ) {
+					return;
+				}
+				if ( retryCount >= 6 ) {
+					notice(t('The scan worker is not responding. Automatic retries stopped; refresh this page to try again.'), 'error');
+					window.clearTimeout(state.reconcileTimer);
+					state.reconcileTimer = window.setTimeout(function () {
+						state.reconcileTimer = null;
+						refresh({ resumeScan: false }).then(function () {
+							if (isActiveScan(state.lastProgress)) {
+								notice(t('The scan is still active. Refresh this page to resume it.'), 'error');
+							}
+						});
+					}, 60000);
+					return;
+				}
+				scheduleMonitor(scanId, Math.min(8000, 1000 * Math.pow(2, Math.min(retryCount, 3))), retryCount + 1);
+			});
 		});
 	}
 
