@@ -6,7 +6,7 @@
 namespace {
 	define( 'ABSPATH', __DIR__ . '/' );
 	define( 'WPINC', 'wp-includes' );
-	define( 'LINKSOLVA_BLC_VERSION', '1.0.12' );
+	define( 'LINKSOLVA_BLC_VERSION', '1.0.13' );
 	class WP_HTTP_Requests_Hooks {}
 
 	$GLOBALS['sblc_test_options'] = array(
@@ -100,6 +100,7 @@ namespace LinkSolva\BrokenLinkChecker {
 		public static $stats_override = null;
 		public static $scan = null;
 		public static $skipped_updates = 0;
+		public static $history_saves = 0;
 
 		public static function resources_for_scan( $scan_id, $limit ) {
 			return array(
@@ -170,6 +171,15 @@ namespace LinkSolva\BrokenLinkChecker {
 				'healthy'     => 0,
 				'ignored'     => 0,
 			);
+		}
+
+		public static function save_scan_history( $scan_id ) {
+			++self::$history_saves;
+			return true;
+		}
+
+		public static function prune_scan_history( $limit = null ) {
+			return true;
 		}
 	}
 

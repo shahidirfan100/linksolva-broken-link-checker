@@ -41,6 +41,33 @@ final class Rest {
 		);
 		register_rest_route(
 			self::NAMESPACE,
+			'/history',
+			array(
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'scan_history' ),
+				'permission_callback' => array( __CLASS__, 'permission' ),
+			)
+		);
+		register_rest_route(
+			self::NAMESPACE,
+			'/history/(?P<id>\d+)/resources',
+			array(
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'scan_history_resources' ),
+				'permission_callback' => array( __CLASS__, 'permission' ),
+			)
+		);
+		register_rest_route(
+			self::NAMESPACE,
+			'/history/(?P<id>\d+)/resource/(?P<resource_id>\d+)',
+			array(
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'scan_history_resource' ),
+				'permission_callback' => array( __CLASS__, 'permission' ),
+			)
+		);
+		register_rest_route(
+			self::NAMESPACE,
 			'/resources/bulk',
 			array(
 				'methods'             => \WP_REST_Server::CREATABLE,
@@ -173,6 +200,73 @@ final class Rest {
 			'search'   => sanitize_text_field( $request->get_param( 'search' ) ),
 		);
 		return rest_ensure_response( Database::list_resources( $args ) );
+	}
+
+	/**
+	 * Return saved completed scans.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public static function scan_history() {
+		$items = Database::scan_history( Settings::get( 'scan_history_limit', 5 ) );
+		foreach ( $items as $item ) {
+			$item->counts = self::decode( $item->counts );
+		}
+		return rest_ensure_response(
+			array(
+				'items' => $items,
+				'limit' => Settings::get( 'scan_history_limit', 5 ),
+			)
+		);
+	}
+
+	/**
+	 * Return one page of saved results from a completed scan.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public static function scan_history_resources( $request ) {
+		$scan_id = absint( $request->get_param( 'id' ) );
+		if ( ! Database::get_history_scan( $scan_id ) ) {
+			return new \WP_Error( 'sblc_history_missing', __( 'The saved scan was not found.', 'linksolva-broken-link-checker' ), array( 'status' => 404 ) );
+		}
+		return rest_ensure_response(
+			Database::scan_history_resources(
+				$scan_id,
+				array(
+					'page'     => absint( $request->get_param( 'page' ) ) ? absint( $request->get_param( 'page' ) ) : 1,
+					'per_page' => absint( $request->get_param( 'per_page' ) ) ? absint( $request->get_param( 'per_page' ) ) : 20,
+					'status'   => sanitize_key( $request->get_param( 'status' ) ),
+					'type'     => sanitize_key( $request->get_param( 'type' ) ),
+					'search'   => sanitize_text_field( $request->get_param( 'search' ) ),
+				)
+			)
+		);
+	}
+
+	/**
+	 * Return read-only evidence from a saved scan result.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public static function scan_history_resource( $request ) {
+		$scan_id     = absint( $request->get_param( 'id' ) );
+		$resource_id = absint( $request->get_param( 'resource_id' ) );
+		if ( ! Database::get_history_scan( $scan_id ) ) {
+			return new \WP_Error( 'sblc_history_missing', __( 'The saved scan was not found.', 'linksolva-broken-link-checker' ), array( 'status' => 404 ) );
+		}
+		$resource = Database::get_scan_history_resource( $scan_id, $resource_id );
+		if ( ! $resource ) {
+			return new \WP_Error( 'sblc_history_resource_missing', __( 'The saved URL result was not found.', 'linksolva-broken-link-checker' ), array( 'status' => 404 ) );
+		}
+		$data                    = self::object_to_array( $resource );
+		$data['historical']      = true;
+		$data['redirect_chain']  = self::decode( $resource->redirect_chain );
+		$data['request_history'] = self::decode( $resource->request_history );
+		$data['occurrences']     = array_map( array( __CLASS__, 'object_to_array' ), Database::scan_history_occurrences( $scan_id, $resource_id ) );
+		return rest_ensure_response( $data );
 	}
 
 	/**

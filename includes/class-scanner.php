@@ -34,6 +34,9 @@ final class Scanner {
 		if ( ! self::acquire_lock() ) {
 			return new \WP_Error( 'sblc_scan_locked', __( 'Another scan request is being started. Please try again.', 'linksolva-broken-link-checker' ), array( 'status' => 409 ) );
 		}
+		if ( Settings::get( 'scan_history_limit', 5 ) > 0 ) {
+			Database::save_latest_scan_history();
+		}
 		Database::reset_for_scan();
 		$scan_id = Database::insert_scan();
 		if ( ! $scan_id ) {
@@ -288,6 +291,10 @@ final class Scanner {
 				'counts'            => wp_json_encode( Database::counts() ),
 			)
 		);
+		if ( Settings::get( 'scan_history_limit', 5 ) > 0 ) {
+			Database::save_scan_history( $scan_id );
+			Database::prune_scan_history();
+		}
 		self::notify_if_enabled( $scan_id );
 		self::schedule_next();
 		self::release_lock();

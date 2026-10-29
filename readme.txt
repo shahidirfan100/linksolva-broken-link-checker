@@ -4,7 +4,7 @@ Tags: broken links, link checker, broken images, redirects, local scanner
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.12
+Stable tag: 1.0.13
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -27,6 +27,8 @@ The plugin classifies results instead of treating every failed request as a dead
 * **SSL Error, DNS Error, Timeout, or Unverified:** the scanner could not establish enough evidence to call the URL broken.
 
 Every result includes request history, redirect chain, response time, confidence, explanation, and source locations.
+
+Completed scan results can be kept locally for later review. Choose to retain 5, 10, or 25 runs, or turn history off. Saved runs include their URL results and source locations; the oldest saved run is removed when the selected limit is exceeded. On upgrade, the latest completed run is saved from the findings still stored by the plugin. Results overwritten by earlier scans cannot be restored.
 
 ### Local by design
 
@@ -55,6 +57,7 @@ This plugin does not create a remote account or transmit data to the developer. 
 3. Open **Link Checker → Findings**.
 4. Review **Link Checker → Settings** before starting a large scan.
 5. Run a scan and open **Evidence** on any result that needs review.
+6. Open **Link Checker → Scan history** to view results from saved runs.
 
 == Frequently Asked Questions ==
 
@@ -76,7 +79,11 @@ The plugin can read scalar metadata when enabled, but it does not rewrite serial
 
 = Can I remove all data on uninstall? =
 
-Data is retained by default. Enable **Delete findings when the plugin is uninstalled** in Settings if you explicitly want plugin-owned tables and options removed.
+Findings and saved scan history stay in the site's database. Enable **Delete findings when the plugin is uninstalled** in Settings if you want plugin-owned tables and options removed.
+
+= How many completed scans can I keep? =
+
+Choose 5, 10, or 25 runs in Settings, or turn scan history off. When you lower the limit, the oldest saved results are removed.
 
 = Does it add scripts to the public website? =
 
@@ -87,7 +94,7 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 1. Findings dashboard with URL status, source counts, and filters for link scope and resource type.
 2. Broken-link evidence with the HTTP result, request history, and source location.
 3. Redirect evidence showing the final destination and each redirect hop.
-4. Settings for bounded work, parallel checks, timeouts, content sources, and scan scheduling.
+4. Settings for bounded work, parallel checks, timeouts, content sources, scan scheduling, and history retention.
 
 == Limitations ==
 
@@ -97,6 +104,11 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * WordPress cron may be delayed or disabled by hosting configuration. The findings screen provides manual worker progress.
 
 == Changelog ==
+
+= 1.0.13 =
+* Added configurable retention for 5, 10, or 25 completed scans, with an option to turn history off.
+* Saved historical URL results and source locations locally, with read-only review from the new Scan history screen.
+* Added bounded, paginated history queries and automatic removal of the oldest saved results.
 
 = 1.0.12 =
 * Completed scans now mark URLs that reach the worker time limit for manual review instead of leaving the queue stuck.
@@ -168,6 +180,9 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * Added evidence-based HTTP classifications, URL deduplication, bounded scanning, safe repairs, and conflict-aware undo.
 
 == Upgrade Notice ==
+
+= 1.0.13 =
+Completed scans can now be saved and reviewed later. Choose the number of completed runs to retain in Settings.
 
 = 1.0.12 =
 Scans now finish with timed-out URLs listed for manual review. Worker duration follows the site's PHP execution-time limit, while batch size and parallel checks adjust to available PHP memory.

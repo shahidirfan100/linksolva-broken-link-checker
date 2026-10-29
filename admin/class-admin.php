@@ -23,6 +23,7 @@ final class Admin {
 	public static function menu() {
 		add_menu_page( __( 'LinkSolva - Broken Link Checker', 'linksolva-broken-link-checker' ), __( 'LinkSolva', 'linksolva-broken-link-checker' ), 'manage_options', 'sblc-dashboard', array( __CLASS__, 'render' ), 'dashicons-admin-links', 35 );
 		add_submenu_page( 'sblc-dashboard', __( 'LinkSolva', 'linksolva-broken-link-checker' ), __( 'Findings', 'linksolva-broken-link-checker' ), 'manage_options', 'sblc-dashboard', array( __CLASS__, 'render' ) );
+		add_submenu_page( 'sblc-dashboard', __( 'Scan history', 'linksolva-broken-link-checker' ), __( 'Scan history', 'linksolva-broken-link-checker' ), 'manage_options', 'sblc-history', array( __CLASS__, 'render' ) );
 		add_submenu_page( 'sblc-dashboard', __( 'Settings', 'linksolva-broken-link-checker' ), __( 'Settings', 'linksolva-broken-link-checker' ), 'manage_options', 'sblc-settings', array( __CLASS__, 'render' ) );
 	}
 
@@ -33,7 +34,7 @@ final class Admin {
 	 * @return void
 	 */
 	public static function assets( $hook ) {
-		if ( ! in_array( $hook, array( 'toplevel_page_sblc-dashboard', 'linksolva_page_sblc-settings' ), true ) ) {
+		if ( ! in_array( $hook, array( 'toplevel_page_sblc-dashboard', 'linksolva_page_sblc-settings', 'linksolva_page_sblc-history' ), true ) ) {
 			return;
 		}
 		$page = filter_input( INPUT_GET, 'page', FILTER_SANITIZE_SPECIAL_CHARS );
@@ -47,7 +48,7 @@ final class Admin {
 				'restUrl'   => esc_url_raw( rest_url( 'sblc/v1' ) ),
 				'nonce'     => wp_create_nonce( 'wp_rest' ),
 				'exportUrl' => esc_url_raw( admin_url( 'admin-post.php?action=sblc_export&_wpnonce=' . wp_create_nonce( 'sblc_export' ) ) ),
-				'page'      => 'sblc-settings' === $page ? 'settings' : 'findings',
+				'page'      => 'sblc-settings' === $page ? 'settings' : ( 'sblc-history' === $page ? 'history' : 'findings' ),
 				'homeUrl'   => esc_url_raw( home_url( '/' ) ),
 				'logoUrl'   => esc_url_raw( LINKSOLVA_BLC_PLUGIN_URL . 'assets/images/linksolva-mark.png' ),
 				'strings'   => array(
@@ -63,6 +64,30 @@ final class Admin {
 					'Blocked'                             => __( 'Blocked', 'linksolva-broken-link-checker' ),
 					'Healthy'                             => __( 'Healthy', 'linksolva-broken-link-checker' ),
 					'Ignored'                             => __( 'Ignored', 'linksolva-broken-link-checker' ),
+					'Scan history'                        => __( 'Scan history', 'linksolva-broken-link-checker' ),
+					'Completed scans to keep'             => __( 'Completed scans to keep', 'linksolva-broken-link-checker' ),
+					'Off'                                 => __( 'Off', 'linksolva-broken-link-checker' ),
+					'5 scans'                             => __( '5 scans', 'linksolva-broken-link-checker' ),
+					'10 scans'                            => __( '10 scans', 'linksolva-broken-link-checker' ),
+					'25 scans'                            => __( '25 scans', 'linksolva-broken-link-checker' ),
+					'Save completed URL results and source locations on this site. Lowering the limit removes the oldest saved runs.' => __( 'Save completed URL results and source locations on this site. Lowering the limit removes the oldest saved runs.', 'linksolva-broken-link-checker' ),
+					'No completed scans have been saved yet.' => __( 'No completed scans have been saved yet.', 'linksolva-broken-link-checker' ),
+					'Review results saved from completed scans.' => __( 'Review results saved from completed scans.', 'linksolva-broken-link-checker' ),
+					'Run'                                 => __( 'Run', 'linksolva-broken-link-checker' ),
+					'Started (UTC)'                       => __( 'Started (UTC)', 'linksolva-broken-link-checker' ),
+					'Finished (UTC)'                      => __( 'Finished (UTC)', 'linksolva-broken-link-checker' ),
+					'URLs checked'                        => __( 'URLs checked', 'linksolva-broken-link-checker' ),
+					'Sources found'                       => __( 'Sources found', 'linksolva-broken-link-checker' ),
+					'Broken / review / redirects / healthy' => __( 'Broken / review / redirects / healthy', 'linksolva-broken-link-checker' ),
+					'View results'                        => __( 'View results', 'linksolva-broken-link-checker' ),
+					'Back to scan history'                => __( 'Back to scan history', 'linksolva-broken-link-checker' ),
+					'Saved URL results from this completed run.' => __( 'Saved URL results from this completed run.', 'linksolva-broken-link-checker' ),
+					'No URL results were saved for this run.' => __( 'No URL results were saved for this run.', 'linksolva-broken-link-checker' ),
+					'View evidence'                        => __( 'View evidence', 'linksolva-broken-link-checker' ),
+					'No source locations were saved for this URL.' => __( 'No source locations were saved for this URL.', 'linksolva-broken-link-checker' ),
+					'Scan history is off. Enable it in Settings to save future completed runs.' => __( 'Scan history is off. Enable it in Settings to save future completed runs.', 'linksolva-broken-link-checker' ),
+					'Loading history…'                    => __( 'Loading history…', 'linksolva-broken-link-checker' ),
+					'Loading history results…'            => __( 'Loading history results…', 'linksolva-broken-link-checker' ),
 					'Unverified'                          => __( 'Unverified', 'linksolva-broken-link-checker' ),
 					'Queued'                              => __( 'Queued', 'linksolva-broken-link-checker' ),
 					'Link scope'                          => __( 'Link scope', 'linksolva-broken-link-checker' ),
@@ -201,9 +226,12 @@ final class Admin {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
-		$settings = 'sblc-settings' === filter_input( INPUT_GET, 'page', FILTER_SANITIZE_SPECIAL_CHARS );
+		$page     = filter_input( INPUT_GET, 'page', FILTER_SANITIZE_SPECIAL_CHARS );
+		$settings = 'sblc-settings' === $page;
+		$history  = 'sblc-history' === $page;
+		$screen   = $settings ? 'settings' : ( $history ? 'history' : 'findings' );
 		?>
-		<div class="wrap sblc-wrap" id="sblc-app" data-screen="<?php echo esc_attr( $settings ? 'settings' : 'findings' ); ?>">
+		<div class="wrap sblc-wrap" id="sblc-app" data-screen="<?php echo esc_attr( $screen ); ?>">
 			<header class="sblc-header">
 				<div class="sblc-brand">
 					<img src="<?php echo esc_url( LINKSOLVA_BLC_PLUGIN_URL . 'assets/images/linksolva-mark.png' ); ?>" alt="" width="42" height="42" />
@@ -213,7 +241,8 @@ final class Admin {
 					</div>
 				</div>
 				<nav class="sblc-nav" aria-label="<?php esc_attr_e( 'Plugin navigation', 'linksolva-broken-link-checker' ); ?>">
-					<a class="<?php echo $settings ? '' : 'is-active'; ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=sblc-dashboard' ) ); ?>"><?php esc_html_e( 'Findings', 'linksolva-broken-link-checker' ); ?></a>
+					<a class="<?php echo ( ! $settings && ! $history ) ? 'is-active' : ''; ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=sblc-dashboard' ) ); ?>"><?php esc_html_e( 'Findings', 'linksolva-broken-link-checker' ); ?></a>
+					<a class="<?php echo $history ? 'is-active' : ''; ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=sblc-history' ) ); ?>"><?php esc_html_e( 'Scan history', 'linksolva-broken-link-checker' ); ?></a>
 					<a class="<?php echo $settings ? 'is-active' : ''; ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=sblc-settings' ) ); ?>"><?php esc_html_e( 'Settings', 'linksolva-broken-link-checker' ); ?></a>
 				</nav>
 			</header>

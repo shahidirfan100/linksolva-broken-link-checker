@@ -19,6 +19,8 @@ if ( empty( $sblc_settings['delete_data_on_uninstall'] ) ) {
 global $wpdb;
 $sblc_tables = array(
 	$wpdb->prefix . 'sblc_repairs',
+	$wpdb->prefix . 'sblc_history_occurrences',
+	$wpdb->prefix . 'sblc_history_resources',
 	$wpdb->prefix . 'sblc_occurrences',
 	$wpdb->prefix . 'sblc_resources',
 	$wpdb->prefix . 'sblc_scans',
