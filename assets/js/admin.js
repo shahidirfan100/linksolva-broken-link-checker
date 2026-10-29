@@ -81,7 +81,27 @@
 		options.headers['X-WP-Nonce'] = config.nonce;
 		options.headers['Content-Type'] = 'application/json';
 		options.cache = 'no-store';
-		return fetch(endpoint, options).then(function (response) {
+		var request;
+		if ( '/scan/step' === path || '/dashboard' === path ) {
+			var controller = typeof window.AbortController === 'function' ? new window.AbortController() : null;
+			if ( controller ) { options.signal = controller.signal; }
+			request = new Promise(function (resolve, reject) {
+				var timeoutId = window.setTimeout(function () {
+					if ( controller ) { controller.abort(); }
+					reject(new Error(t('The scan status request timed out.')));
+				}, 30000);
+				fetch(endpoint, options).then(function (response) {
+					window.clearTimeout(timeoutId);
+					resolve(response);
+				}, function (error) {
+					window.clearTimeout(timeoutId);
+					reject(error);
+				});
+			});
+		} else {
+			request = fetch(endpoint, options);
+		}
+		return request.then(function (response) {
 			return response.json().catch(function () { return {}; }).then(function (body) {
 				if (!response.ok) {
 					throw new Error(body.message || t('The request could not be completed.'));
