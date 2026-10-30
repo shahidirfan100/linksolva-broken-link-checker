@@ -10,8 +10,24 @@ let page;
   await page.locator('#user_login').fill('admin');
   await page.locator('#user_pass').fill('test-password');
   await page.locator('#wp-submit').click();
+  let dashboardWaiting = false;
+  let listStartedDuringDashboard = false;
+  const loadingRoute = async route => {
+    const url = decodeURIComponent(route.request().url());
+    if (url.includes('/sblc/v1/dashboard')) {
+      dashboardWaiting = true;
+      await new Promise(resolve => setTimeout(resolve, 750));
+      dashboardWaiting = false;
+    } else if (url.includes('/sblc/v1/resources') && dashboardWaiting) {
+      listStartedDuringDashboard = true;
+    }
+    return route.continue();
+  };
+  await page.route('**/*', loadingRoute);
   await page.goto('http://127.0.0.1:8080/wp-admin/admin.php?page=sblc-dashboard');
   await page.locator('[data-resource-row]').first().waitFor();
+  if (!listStartedDuringDashboard) throw new Error('Findings list waited for the dashboard request');
+  await page.unroute('**/*', loadingRoute);
   await page.getByText('example.com/missing-page', { exact: false }).first().waitFor();
   fs.mkdirSync('screenshots', { recursive: true });
   await page.screenshot({ path: 'screenshots/screenshot-1.png', fullPage: true });
@@ -39,7 +55,8 @@ let page;
     if (!decodeURIComponent(route.request().url()).includes('/sblc/v1/repair')) return route.continue();
     repairAttempts++;
     if (repairAttempts === 1) return route.fulfill({ status: 403, json: { code: 'rest_forbidden', message: 'Sorry, you do not have permission to make REST API requests.' } });
-    if (repairAttempts === 2) return route.fulfill({ status: 403, json: { code: 'rest_cookie_invalid_nonce', message: 'Expired nonce' } });
+    if (repairAttempts === 2) return route.fulfill({ status: 401, json: { code: 'rest_not_logged_in', message: 'Not logged in' } });
+    if (repairAttempts === 3) return route.fulfill({ status: 403, json: { code: 'rest_cookie_invalid_nonce', message: 'Expired nonce' } });
     return route.continue();
   };
   await page.route('**/*', repairRoute);
@@ -48,8 +65,11 @@ let page;
   await page.locator('[data-repair-error]').getByText('Sorry, you do not have permission to make REST API requests.').waitFor();
   if (repairAttempts !== 1) throw new Error('A permission denial must not be retried or bypassed');
   await unlink.click();
+  await page.locator('[data-repair-error]').getByText('Your session has expired. Sign in again and retry.').waitFor();
+  if (repairAttempts !== 2) throw new Error('A signed-out request must not be retried');
+  await unlink.click();
   await page.getByText('The link was unlinked and removed from the finding when no sources still used it.').waitFor();
-  if (repairAttempts !== 3) throw new Error('Expired nonce was not refreshed and retried exactly once');
+  if (repairAttempts !== 4) throw new Error('Expired nonce was not refreshed and retried exactly once');
   await page.unroute('**/*', repairRoute);
   await page.goto('http://127.0.0.1:8080/wp-admin/admin.php?page=sblc-settings');
   await page.locator('#sblc-timeout').waitFor();

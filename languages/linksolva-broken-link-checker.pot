@@ -1185,3 +1185,6 @@ msgstr ""
 
 msgid "The request timed out. Try again."
 msgstr ""
+
+msgid "Your session has expired. Sign in again and retry."
+msgstr ""

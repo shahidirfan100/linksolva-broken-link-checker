@@ -123,6 +123,7 @@
 					if (!retried && response.status === 403 && body.code === 'rest_cookie_invalid_nonce' && config.ajaxUrl) {
 						return renewNonce().then(function () { delete options.signal; return api(path, options, true); });
 					}
+					if (response.status === 401) { throw new Error(t('Your session has expired. Sign in again and retry.')); }
 					throw new Error(body.message || t('The request could not be completed.'));
 				}
 				return body;

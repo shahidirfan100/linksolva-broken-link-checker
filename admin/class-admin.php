@@ -54,6 +54,7 @@ final class Admin {
 				'logoUrl'   => esc_url_raw( LINKSOLVA_BLC_PLUGIN_URL . 'assets/images/linksolva-mark.png' ),
 				'strings'   => array(
 					'Your session has expired or you do not have permission. Sign in again.' => __( 'Your session has expired or you do not have permission. Sign in again.', 'linksolva-broken-link-checker' ),
+					'Your session has expired. Sign in again and retry.' => __( 'Your session has expired. Sign in again and retry.', 'linksolva-broken-link-checker' ),
 					'Findings could not be loaded.' => __( 'Findings could not be loaded.', 'linksolva-broken-link-checker' ),
 					'Try again' => __( 'Try again', 'linksolva-broken-link-checker' ),
 					'Loading…' => __( 'Loading…', 'linksolva-broken-link-checker' ),
