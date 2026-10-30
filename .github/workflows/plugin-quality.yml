@@ -134,3 +134,59 @@ jobs:
         run: php /tmp/wp.phar eval-file tests/integration-discovery-failure.php --path=/tmp/linksolva-wp
       - name: Exercise real scan and history failure
         run: php /tmp/wp.phar eval-file tests/integration-scan.php --path=/tmp/linksolva-wp
+
+  browser-screenshots:
+    name: Browser checks and screenshots
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: wordpress
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mysqli, curl, dom, mbstring
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Create a disposable WordPress site
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar -o /tmp/wp.phar
+          mkdir -p /tmp/linksolva-ui-wp/wp-content/plugins/linksolva-broken-link-checker
+          php /tmp/wp.phar core download --path=/tmp/linksolva-ui-wp --quiet
+          php /tmp/wp.phar config create --path=/tmp/linksolva-ui-wp --dbname=wordpress --dbuser=root --dbpass=root --dbhost=127.0.0.1:3306 --extra-php <<'PHP'
+          define( 'WP_DEBUG', true );
+          define( 'WP_DEBUG_LOG', true );
+          define( 'WP_DEBUG_DISPLAY', false );
+          PHP
+          php /tmp/wp.phar core install --path=/tmp/linksolva-ui-wp --url=http://127.0.0.1:8080 --title='LinkSolva Sample Site' --admin_user=admin --admin_password=test-password --admin_email=admin@example.com --skip-email
+          cp -R . /tmp/linksolva-ui-wp/wp-content/plugins/linksolva-broken-link-checker/
+          php /tmp/wp.phar plugin activate linksolva-broken-link-checker --path=/tmp/linksolva-ui-wp
+          php /tmp/wp.phar eval-file tests/screenshot-fixture.php --path=/tmp/linksolva-ui-wp
+          php -S 127.0.0.1:8080 -t /tmp/linksolva-ui-wp >/tmp/linksolva-ui-server.log 2>&1 &
+      - name: Install browser
+        run: |
+          npm install --prefix /tmp/linksolva-ui playwright@1.55.1
+          /tmp/linksolva-ui/node_modules/.bin/playwright install --with-deps chromium
+      - name: Check dashboard and capture screenshots
+        env:
+          NODE_PATH: /tmp/linksolva-ui/node_modules
+        run: |
+          node tests/screenshot-ui.cjs
+          if [ -s /tmp/linksolva-ui-wp/wp-content/debug.log ]; then cat /tmp/linksolva-ui-wp/wp-content/debug.log; exit 1; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linksolva-screenshots
+          path: screenshots/
+          if-no-files-found: warn
