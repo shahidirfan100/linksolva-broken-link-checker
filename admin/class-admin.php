@@ -47,11 +47,19 @@ final class Admin {
 			array(
 				'restUrl'   => esc_url_raw( rest_url( 'sblc/v1' ) ),
 				'nonce'     => wp_create_nonce( 'wp_rest' ),
+				'ajaxUrl'   => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
 				'exportUrl' => esc_url_raw( admin_url( 'admin-post.php?action=sblc_export&_wpnonce=' . wp_create_nonce( 'sblc_export' ) ) ),
 				'page'      => 'sblc-settings' === $page ? 'settings' : ( 'sblc-history' === $page ? 'history' : 'findings' ),
 				'homeUrl'   => esc_url_raw( home_url( '/' ) ),
 				'logoUrl'   => esc_url_raw( LINKSOLVA_BLC_PLUGIN_URL . 'assets/images/linksolva-mark.png' ),
 				'strings'   => array(
+					'Your session has expired or you do not have permission. Sign in again.' => __( 'Your session has expired or you do not have permission. Sign in again.', 'linksolva-broken-link-checker' ),
+					'Your session has expired. Sign in again and retry.' => __( 'Your session has expired. Sign in again and retry.', 'linksolva-broken-link-checker' ),
+					'Findings could not be loaded.' => __( 'Findings could not be loaded.', 'linksolva-broken-link-checker' ),
+					'Try again' => __( 'Try again', 'linksolva-broken-link-checker' ),
+					'Loading…' => __( 'Loading…', 'linksolva-broken-link-checker' ),
+					'Saving…' => __( 'Saving…', 'linksolva-broken-link-checker' ),
+					'The request timed out. Try again.' => __( 'The request timed out. Try again.', 'linksolva-broken-link-checker' ),
 					'The request could not be completed.' => __( 'The request could not be completed.', 'linksolva-broken-link-checker' ),
 					'Discovering sources'                 => __( 'Discovering sources', 'linksolva-broken-link-checker' ),
 					'Verifying resources'                 => __( 'Verifying resources', 'linksolva-broken-link-checker' ),
@@ -150,7 +158,7 @@ final class Admin {
 					'The worker caps this at four and lowers it when PHP memory is tight.' => __( 'The worker caps this at four and lowers it when PHP memory is tight.', 'linksolva-broken-link-checker' ),
 					'Request timeout, seconds'            => __( 'Request timeout, seconds', 'linksolva-broken-link-checker' ),
 					'Maximum redirect hops'               => __( 'Maximum redirect hops', 'linksolva-broken-link-checker' ),
-					'Temporary failure retries'           => __( 'Temporary failure retries', 'linksolva-broken-link-checker' ),
+					'Timeout retries'           => __( 'Timeout retries', 'linksolva-broken-link-checker' ),
 					'Content sources'                     => __( 'Content sources', 'linksolva-broken-link-checker' ),
 					'Public post types'                   => __( 'Public post types', 'linksolva-broken-link-checker' ),
 					'Leave all unchecked to include every public post type except attachments and menu items.' => __( 'Leave all unchecked to include every public post type except attachments and menu items.', 'linksolva-broken-link-checker' ),
@@ -220,6 +228,14 @@ final class Admin {
 				),
 			)
 		);
+	}
+
+	/** Return a REST nonce only to an authenticated administrator. */
+	public static function refresh_rest_nonce() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Your session has expired or you do not have permission. Sign in again.', 'linksolva-broken-link-checker' ) ), 403 );
+		}
+		wp_send_json_success( array( 'nonce' => wp_create_nonce( 'wp_rest' ) ) );
 	}
 
 	/**

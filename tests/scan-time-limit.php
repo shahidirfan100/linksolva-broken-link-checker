@@ -6,8 +6,12 @@
 namespace {
 	define( 'ABSPATH', __DIR__ . '/' );
 	define( 'WPINC', 'wp-includes' );
+	define( 'DAY_IN_SECONDS', 86400 );
 	define( 'LINKSOLVA_BLC_VERSION', '1.0.19' );
 	class WP_HTTP_Requests_Hooks {}
+	class WP_HTTP_Proxy {
+		public function is_enabled() { return false; }
+	}
 
 	$GLOBALS['sblc_test_options'] = array(
 		'sblc_settings' => array(
@@ -65,10 +69,12 @@ namespace {
 namespace WpOrg\Requests {
 	final class Requests {
 		public static $calls = 0;
+		public static $timeout = 0;
 
 		public static function request_multiple( $requests ) {
 			++self::$calls;
-			return array();
+			self::$timeout = reset( $requests )['options']['timeout'];
+			throw new \RuntimeException( 'Connection timed out' );
 		}
 	}
 }
@@ -101,13 +107,14 @@ namespace LinkSolva\BrokenLinkChecker {
 		public static $scan = null;
 		public static $skipped_updates = 0;
 		public static $history_saves = 0;
+		public static $retry_count = 0;
 
 		public static function resources_for_scan( $scan_id, $limit ) {
 			return array(
 				(object) array(
 					'id'          => 101,
 					'url'         => 'https://slow-dns.example/path',
-					'retry_count' => 0,
+					'retry_count' => self::$retry_count,
 					'ignored'     => 0,
 				),
 			);
@@ -115,12 +122,14 @@ namespace LinkSolva\BrokenLinkChecker {
 
 		public static function mark_checked( $resource_id, $scan_id ) { return true; }
 
-		public static function save_result( $resource_id, $scan_id, $result ) {
+		public static function save_result( $resource_id, $scan_id, $result, $complete = true ) {
 			self::$saved_results[] = array(
 				'resource_id' => $resource_id,
 				'scan_id'     => $scan_id,
 				'result'      => $result,
+				'complete'    => $complete,
 			);
+			self::$retry_count = $result['retry_count'];
 			return true;
 		}
 
@@ -207,31 +216,24 @@ namespace {
 	}
 
 	$method = new \ReflectionMethod( Scanner::class, 'check_resources' );
-	$method->setAccessible( true );
-	$method->invoke( null, (object) array( 'id' => 7 ), microtime( true ) + 0.25 );
-	if ( 1 !== \LinkSolva\BrokenLinkChecker\Ssrf_Guard::$calls || 0 !== \WpOrg\Requests\Requests::$calls ) {
-		fwrite( STDERR, "The worker did not stop before dispatching a URL that exceeded its remaining time.\n" );
+	if ( PHP_VERSION_ID < 80100 ) { $method->setAccessible( true ); }
+	$scan = (object) array( 'id' => 7, 'checked_resources' => 0 );
+	$method->invoke( null, $scan, microtime( true ) + 0.25 );
+	if ( 0 !== \LinkSolva\BrokenLinkChecker\Ssrf_Guard::$calls || 0 !== count( Database::$saved_results ) ) {
+		fwrite( STDERR, "The worker did not defer a URL when its remaining budget was too short.\n" );
 		exit( 1 );
 	}
-
-	if ( 1 !== count( Database::$saved_results ) ) {
-		fwrite( STDERR, "The deferred URL was left pending instead of being recorded.\n" );
+	for ( $attempt = 0; $attempt < 3; ++$attempt ) {
+		$method->invoke( null, $scan, microtime( true ) + $limits['execution_seconds'] );
+	}
+	if ( 3 !== count( Database::$saved_results ) || Database::$saved_results[0]['complete'] || Database::$saved_results[1]['complete'] || ! Database::$saved_results[2]['complete'] || 'timeout' !== Database::$saved_results[2]['result']['status'] || \WpOrg\Requests\Requests::$timeout < 12 ) {
+		fwrite( STDERR, "Timeouts were not retried with the configured budget and bounded attempts.\n" );
 		exit( 1 );
 	}
-
-	$result = Database::$saved_results[0]['result'];
-	if ( 'scan_time_limit' !== $result['error_code'] || 'unverified' !== $result['status'] || false === strpos( $result['explanation'], 'Review it manually' ) ) {
-		fwrite( STDERR, "The deferred URL was not classified for manual review.\n" );
-		exit( 1 );
-	}
-
-	if ( empty( Database::$updates[0]['checked_resources'] ) ) {
-		fwrite( STDERR, "The deferred URL was not counted as checked for this scan.\n" );
-		exit( 1 );
-	}
+	Database::$saved_results = array( Database::$saved_results[2] );
 
 	$progress_method = new \ReflectionMethod( Scanner::class, 'progress' );
-	$progress_method->setAccessible( true );
+	if ( PHP_VERSION_ID < 80100 ) { $progress_method->setAccessible( true ); }
 	Database::$stats_override = array(
 		'total_resources'   => 12,
 		'checked_resources' => 11,
@@ -270,7 +272,7 @@ namespace {
 	}
 
 	$reconcile_method = new \ReflectionMethod( Scanner::class, 'reconcile_scan' );
-	$reconcile_method->setAccessible( true );
+	if ( PHP_VERSION_ID < 80100 ) { $reconcile_method->setAccessible( true ); }
 	Database::$stats_override = array(
 		'total_resources'   => 3,
 		'checked_resources' => 1,

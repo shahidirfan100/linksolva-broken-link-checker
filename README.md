@@ -4,6 +4,10 @@ Local WordPress link verification with evidence-based classifications, URL dedup
 
 The plugin does not require a cloud account, developer service, telemetry, advertising, or link credits. It checks destinations from the WordPress server and stores findings in plugin-owned tables.
 
+## Current version
+
+1.0.21
+
 ## Scope
 
 The current release covers public posts, pages, public custom post types, approved comments, custom navigation menu URLs, featured images, HTML links and images, plain-text HTTP(S) URLs, and optional read-only scalar metadata discovery.
@@ -16,7 +20,7 @@ The scanner distinguishes successful responses, redirects, definitive 404/410 fa
 
 ## Development notes
 
-The plugin uses WordPress HTTP APIs and the WordPress-bundled Requests library for parallel initial HEAD requests, with redirect following disabled. Each redirect target is normalized and validated before the next request. Requests are limited by timeout, redirect count, response size, and a serialized worker lock. Worker duration follows PHP's execution-time limit. Batch size and parallel checks adjust to available PHP memory, with a maximum of four concurrent URL checks. URLs that cannot be checked within a worker's time budget are stored as unverified and counted for manual review, so they do not remain in the queue indefinitely. Network timeouts are recorded without repeating the same request immediately. PHP does not expose reliable per-account CPU quotas on all shared hosts, so the plugin uses conservative concurrency limits rather than claiming to measure CPU availability. Replacement repairs are verified before the old orphaned finding is retired, and undo restores the original resource mapping. The admin application uses plain JavaScript and scoped CSS loaded only on plugin screens.
+The plugin uses WordPress HTTP APIs and the WordPress-bundled Requests library for parallel initial HEAD requests, with redirect following disabled. Each redirect target is normalized and validated before the next request. Requests are limited by timeout, redirect count, response size, and a serialized worker lock. Worker duration follows PHP's execution-time limit. Batch size and parallel checks adjust to available PHP memory, with a maximum of four concurrent URL checks. When the remaining worker budget is too short, verification waits for a fresh worker. Timeouts are retried up to the configured limit before remaining unverified. PHP execution limits can shorten the effective request timeout. PHP does not expose reliable per-account CPU quotas on all shared hosts, so the plugin uses conservative concurrency limits rather than claiming to measure CPU availability. Replacement repairs are verified before the old orphaned finding is retired, and undo restores the original resource mapping. The admin application uses plain JavaScript and scoped CSS loaded only on plugin screens.
 
 ## WordPress.org media
 

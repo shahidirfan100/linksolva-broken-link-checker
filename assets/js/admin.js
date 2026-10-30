@@ -2,6 +2,7 @@
 	'use strict';
 
 	var config = window.LINKSOLVA_BLC_DATA || {};
+	var nonceRefresh = null;
 	var root = document.getElementById('sblc-app');
 	if (!root) {
 		return;
@@ -73,7 +74,19 @@
 		return template.innerHTML;
 	}
 
-	function api(path, options) {
+	function renewNonce() {
+		if (!nonceRefresh) {
+			nonceRefresh = fetch(config.ajaxUrl + '?action=sblc_refresh_rest_nonce', { credentials: 'same-origin', cache: 'no-store' }).then(function (response) {
+				return response.json().then(function (body) {
+					if (!response.ok || !body.success || !body.data || !body.data.nonce) { throw new Error(t('Your session has expired or you do not have permission. Sign in again.')); }
+					config.nonce = body.data.nonce;
+				});
+			}).finally(function () { nonceRefresh = null; });
+		}
+		return nonceRefresh;
+	}
+
+	function api(path, options, retried) {
 		var endpoint = config.restUrl + path;
 		var queryAt = path.indexOf('?');
 		if (queryAt !== -1 && config.restUrl.indexOf('?rest_route=') !== -1) {
@@ -91,8 +104,8 @@
 			request = new Promise(function (resolve, reject) {
 				var timeoutId = window.setTimeout(function () {
 					if ( controller ) { controller.abort(); }
-					reject(new Error(t('The scan status request timed out.')));
-				}, 30000);
+					reject(new Error(t('The request timed out. Try again.')));
+				}, '/scan/step' === path ? 30000 : 15000);
 				fetch(endpoint, options).then(function (response) {
 					window.clearTimeout(timeoutId);
 					resolve(response);
@@ -107,6 +120,10 @@
 		return request.then(function (response) {
 			return response.json().catch(function () { return {}; }).then(function (body) {
 				if (!response.ok) {
+					if (!retried && response.status === 403 && body.code === 'rest_cookie_invalid_nonce' && config.ajaxUrl) {
+						return renewNonce().then(function () { delete options.signal; return api(path, options, true); });
+					}
+					if (response.status === 401) { throw new Error(t('Your session has expired. Sign in again and retry.')); }
 					throw new Error(body.message || t('The request could not be completed.'));
 				}
 				return body;
@@ -131,11 +148,6 @@
 		if (main) {
 			main.insertBefore(element, main.firstChild);
 		}
-	}
-
-	function clearLiveNotice() {
-		var existing = root.querySelector('.sblc-notice-live');
-		if (existing) { existing.remove(); }
 	}
 
 	function button(label, action, extraClass, extra) {
@@ -338,7 +350,7 @@
 			var label = type.label || name;
 			return '<label class="sblc-check"><input type="checkbox" name="post_types[]" value="' + escapeHtml(name) + '"' + ((settings.post_types || []).indexOf(name) !== -1 ? ' checked' : '') + ' /> <span>' + escapeHtml(label) + ' <code>' + escapeHtml(name) + '</code></span></label>';
 		}).join('');
-		root.querySelector('[data-screen-content]').innerHTML = translateMarkup('<section class="sblc-panel sblc-settings"><h2>Settings</h2><p class="sblc-settings-intro">Requests stay on this WordPress server. The plugin does not use an account, cloud scanner, tracking, or link credits.</p><form data-settings-form><div class="sblc-settings-section"><h3>Verification safety</h3><div class="sblc-field-grid"><div class="sblc-field"><label for="sblc-batch">Resources per worker request</label><input class="sblc-input" id="sblc-batch" name="batch_size" type="number" min="1" max="10" value="' + escapeHtml(settings.batch_size) + '" /><p class="sblc-help">The worker caps this at ten and lowers it when PHP memory is tight.</p></div><div class="sblc-field"><label for="sblc-parallel">Parallel URL checks</label><input class="sblc-input" id="sblc-parallel" name="parallel_requests" type="number" min="1" max="4" value="' + escapeHtml(settings.parallel_requests || 3) + '" /><p class="sblc-help">The worker caps this at four and lowers it when PHP memory is tight.</p></div><div class="sblc-field"><label for="sblc-timeout">Request timeout, seconds</label><input class="sblc-input" id="sblc-timeout" name="timeout" type="number" min="3" max="60" value="' + escapeHtml(settings.timeout) + '" /></div><div class="sblc-field"><label for="sblc-redirects">Maximum redirect hops</label><input class="sblc-input" id="sblc-redirects" name="max_redirects" type="number" min="0" max="15" value="' + escapeHtml(settings.max_redirects) + '" /></div><div class="sblc-field"><label for="sblc-retries">Temporary failure retries</label><input class="sblc-input" id="sblc-retries" name="max_retries" type="number" min="0" max="4" value="' + escapeHtml(settings.max_retries) + '" /></div></div></div><div class="sblc-settings-section"><h3>Content sources</h3><div class="sblc-field-grid"><div class="sblc-field sblc-field-full"><label>Public post types</label><div class="sblc-field-grid">' + typeFields + '</div><p class="sblc-help">Leave all unchecked to include every public post type except attachments and menu items.</p></div><label class="sblc-check"><input type="checkbox" name="include_comments"' + (settings.include_comments ? ' checked' : '') + ' /> <span>Scan approved comments</span></label><label class="sblc-check"><input type="checkbox" name="include_menus"' + (settings.include_menus ? ' checked' : '') + ' /> <span>Scan navigation menu URLs</span></label><label class="sblc-check"><input type="checkbox" name="include_featured_images"' + (settings.include_featured_images ? ' checked' : '') + ' /> <span>Check featured images</span></label><label class="sblc-check"><input type="checkbox" name="include_custom_fields"' + (settings.include_custom_fields ? ' checked' : '') + ' /> <span>Read scalar custom-field and builder data</span></label><label class="sblc-check"><input type="checkbox" name="check_internal_links"' + (settings.check_internal_links ? ' checked' : '') + ' /> <span>Check internal links</span></label><label class="sblc-check"><input type="checkbox" name="check_external_links"' + (settings.check_external_links ? ' checked' : '') + ' /> <span>Check external links</span></label><div class="sblc-field sblc-field-full"><label for="sblc-meta-keys">Limit custom-field keys (one per line, optional)</label><textarea class="sblc-input" id="sblc-meta-keys" name="custom_meta_keys" rows="3">' + escapeHtml((settings.custom_meta_keys || []).join('\n')) + '</textarea><p class="sblc-help">Builder metadata is read-only in this release; it is never rewritten blindly.</p></div></div></div><div class="sblc-settings-section"><h3>Scan history</h3><div class="sblc-field-grid"><div class="sblc-field"><label for="sblc-history-limit">Scans to keep</label><select class="sblc-select" id="sblc-history-limit" name="scan_history_limit"><option value="0"' + (Number(settings.scan_history_limit) === 0 ? ' selected' : '') + '>Off</option><option value="5"' + (Number(settings.scan_history_limit) === 5 ? ' selected' : '') + '>5 scans</option><option value="10"' + (Number(settings.scan_history_limit) === 10 ? ' selected' : '') + '>10 scans</option><option value="25"' + (Number(settings.scan_history_limit) === 25 ? ' selected' : '') + '>25 scans</option></select><p class="sblc-help">Save completed and stopped scans, including URL results and source locations. Lowering the limit removes the oldest saved runs.</p></div></div></div><div class="sblc-settings-section"><h3>Exclusions and lifecycle</h3><div class="sblc-field-grid"><div class="sblc-field"><label for="sblc-excluded-domains">Excluded domains (one per line)</label><textarea class="sblc-input" id="sblc-excluded-domains" name="excluded_domains" rows="3">' + escapeHtml((settings.excluded_domains || []).join('\n')) + '</textarea></div><div class="sblc-field"><label for="sblc-excluded-fragments">Excluded URL fragments (one per line)</label><textarea class="sblc-input" id="sblc-excluded-fragments" name="excluded_url_fragments" rows="3">' + escapeHtml((settings.excluded_url_fragments || []).join('\n')) + '</textarea></div><div class="sblc-field"><label for="sblc-schedule">Scheduled scans</label><select class="sblc-select" id="sblc-schedule" name="schedule"><option value="manual"' + ('manual' === settings.schedule ? ' selected' : '') + '>Manual only</option><option value="daily"' + ('daily' === settings.schedule ? ' selected' : '') + '>Daily</option><option value="weekly"' + ('weekly' === settings.schedule ? ' selected' : '') + '>Weekly</option></select><p class="sblc-help">Scheduled work starts a bounded scan from WP-Cron. Manual scanning remains available if cron is delayed.</p></div><label class="sblc-check"><input type="checkbox" name="email_notifications"' + (settings.email_notifications ? ' checked' : '') + ' /> <span>Email a local summary when a scan completes</span></label><div class="sblc-field"><label for="sblc-email">Notification email</label><input class="sblc-input" id="sblc-email" name="notification_email" type="email" value="' + escapeHtml(settings.notification_email || '') + '" /></div><label class="sblc-check"><input type="checkbox" name="delete_data_on_uninstall"' + (settings.delete_data_on_uninstall ? ' checked' : '') + ' /> <span>Delete findings when the plugin is uninstalled</span></label></div></div><div class="sblc-actions">' + button(t('Save settings'), 'save-settings', 'sblc-button-primary') + '</div></form></section>');
+		root.querySelector('[data-screen-content]').innerHTML = translateMarkup('<section class="sblc-panel sblc-settings"><h2>Settings</h2><p class="sblc-settings-intro">Requests stay on this WordPress server. The plugin does not use an account, cloud scanner, tracking, or link credits.</p><form data-settings-form><div class="sblc-settings-section"><h3>Verification safety</h3><div class="sblc-field-grid"><div class="sblc-field"><label for="sblc-batch">Resources per worker request</label><input class="sblc-input" id="sblc-batch" name="batch_size" type="number" min="1" max="10" value="' + escapeHtml(settings.batch_size) + '" /><p class="sblc-help">The worker caps this at ten and lowers it when PHP memory is tight.</p></div><div class="sblc-field"><label for="sblc-parallel">Parallel URL checks</label><input class="sblc-input" id="sblc-parallel" name="parallel_requests" type="number" min="1" max="4" value="' + escapeHtml(settings.parallel_requests || 3) + '" /><p class="sblc-help">The worker caps this at four and lowers it when PHP memory is tight.</p></div><div class="sblc-field"><label for="sblc-timeout">Request timeout, seconds</label><input class="sblc-input" id="sblc-timeout" name="timeout" type="number" min="3" max="60" value="' + escapeHtml(settings.timeout) + '" /></div><div class="sblc-field"><label for="sblc-redirects">Maximum redirect hops</label><input class="sblc-input" id="sblc-redirects" name="max_redirects" type="number" min="0" max="15" value="' + escapeHtml(settings.max_redirects) + '" /></div><div class="sblc-field"><label for="sblc-retries">Timeout retries</label><input class="sblc-input" id="sblc-retries" name="max_retries" type="number" min="0" max="4" value="' + escapeHtml(settings.max_retries) + '" /></div></div></div><div class="sblc-settings-section"><h3>Content sources</h3><div class="sblc-field-grid"><div class="sblc-field sblc-field-full"><label>Public post types</label><div class="sblc-field-grid">' + typeFields + '</div><p class="sblc-help">Leave all unchecked to include every public post type except attachments and menu items.</p></div><label class="sblc-check"><input type="checkbox" name="include_comments"' + (settings.include_comments ? ' checked' : '') + ' /> <span>Scan approved comments</span></label><label class="sblc-check"><input type="checkbox" name="include_menus"' + (settings.include_menus ? ' checked' : '') + ' /> <span>Scan navigation menu URLs</span></label><label class="sblc-check"><input type="checkbox" name="include_featured_images"' + (settings.include_featured_images ? ' checked' : '') + ' /> <span>Check featured images</span></label><label class="sblc-check"><input type="checkbox" name="include_custom_fields"' + (settings.include_custom_fields ? ' checked' : '') + ' /> <span>Read scalar custom-field and builder data</span></label><label class="sblc-check"><input type="checkbox" name="check_internal_links"' + (settings.check_internal_links ? ' checked' : '') + ' /> <span>Check internal links</span></label><label class="sblc-check"><input type="checkbox" name="check_external_links"' + (settings.check_external_links ? ' checked' : '') + ' /> <span>Check external links</span></label><div class="sblc-field sblc-field-full"><label for="sblc-meta-keys">Limit custom-field keys (one per line, optional)</label><textarea class="sblc-input" id="sblc-meta-keys" name="custom_meta_keys" rows="3">' + escapeHtml((settings.custom_meta_keys || []).join('\n')) + '</textarea><p class="sblc-help">Builder metadata is read-only in this release; it is never rewritten blindly.</p></div></div></div><div class="sblc-settings-section"><h3>Scan history</h3><div class="sblc-field-grid"><div class="sblc-field"><label for="sblc-history-limit">Scans to keep</label><select class="sblc-select" id="sblc-history-limit" name="scan_history_limit"><option value="0"' + (Number(settings.scan_history_limit) === 0 ? ' selected' : '') + '>Off</option><option value="5"' + (Number(settings.scan_history_limit) === 5 ? ' selected' : '') + '>5 scans</option><option value="10"' + (Number(settings.scan_history_limit) === 10 ? ' selected' : '') + '>10 scans</option><option value="25"' + (Number(settings.scan_history_limit) === 25 ? ' selected' : '') + '>25 scans</option></select><p class="sblc-help">Save completed and stopped scans, including URL results and source locations. Lowering the limit removes the oldest saved runs.</p></div></div></div><div class="sblc-settings-section"><h3>Exclusions and lifecycle</h3><div class="sblc-field-grid"><div class="sblc-field"><label for="sblc-excluded-domains">Excluded domains (one per line)</label><textarea class="sblc-input" id="sblc-excluded-domains" name="excluded_domains" rows="3">' + escapeHtml((settings.excluded_domains || []).join('\n')) + '</textarea></div><div class="sblc-field"><label for="sblc-excluded-fragments">Excluded URL fragments (one per line)</label><textarea class="sblc-input" id="sblc-excluded-fragments" name="excluded_url_fragments" rows="3">' + escapeHtml((settings.excluded_url_fragments || []).join('\n')) + '</textarea></div><div class="sblc-field"><label for="sblc-schedule">Scheduled scans</label><select class="sblc-select" id="sblc-schedule" name="schedule"><option value="manual"' + ('manual' === settings.schedule ? ' selected' : '') + '>Manual only</option><option value="daily"' + ('daily' === settings.schedule ? ' selected' : '') + '>Daily</option><option value="weekly"' + ('weekly' === settings.schedule ? ' selected' : '') + '>Weekly</option></select><p class="sblc-help">Scheduled work starts a bounded scan from WP-Cron. Manual scanning remains available if cron is delayed.</p></div><label class="sblc-check"><input type="checkbox" name="email_notifications"' + (settings.email_notifications ? ' checked' : '') + ' /> <span>Email a local summary when a scan completes</span></label><div class="sblc-field"><label for="sblc-email">Notification email</label><input class="sblc-input" id="sblc-email" name="notification_email" type="email" value="' + escapeHtml(settings.notification_email || '') + '" /></div><label class="sblc-check"><input type="checkbox" name="delete_data_on_uninstall"' + (settings.delete_data_on_uninstall ? ' checked' : '') + ' /> <span>Delete findings when the plugin is uninstalled</span></label></div></div><div class="sblc-actions">' + button(t('Save settings'), 'save-settings', 'sblc-button-primary') + '</div></form></section>');
 	}
 
 	function renderHistoryList(data) {
@@ -424,7 +436,7 @@
 		var history = (resource.request_history || []).map(function (item) { return '<li><code>' + escapeHtml(item.method) + '</code><span>' + escapeHtml(item.status || item.message || t('No response')) + '</span><span>' + escapeHtml(item.duration || 0) + 's</span></li>'; }).join('');
 		var redirects = (resource.redirect_chain || []).map(function (item) { return '<li><span>' + escapeHtml(item.status) + '</span><span>' + escapeHtml(item.from) + '</span><span>→ ' + escapeHtml(item.to) + '</span></li>'; }).join('');
 		var occurrences = (resource.occurrences || []).map(function (item) {
-			var form = item.editable ? translateMarkup('<div class="sblc-repair-form"><label for="sblc-new-url-' + escapeHtml(item.id) + '">Replacement URL</label><input class="sblc-input" id="sblc-new-url-' + escapeHtml(item.id) + '" type="url" value="' + escapeHtml(resource.final_url && resource.status === 'redirect' ? resource.final_url : '') + '" data-repair-url="' + escapeHtml(item.id) + '" /><div class="sblc-actions"><button type="button" class="sblc-button sblc-button-primary" data-action="apply-repair" data-occurrence-id="' + escapeHtml(item.id) + '" data-operation="replace">Replace URL</button><button type="button" class="sblc-button sblc-button-secondary" data-action="apply-repair" data-occurrence-id="' + escapeHtml(item.id) + '" data-operation="nofollow">Add nofollow</button><button type="button" class="sblc-button sblc-button-secondary" data-action="apply-repair" data-occurrence-id="' + escapeHtml(item.id) + '" data-operation="unlink">Unlink</button></div></div>') : translateMarkup('<p><strong>Read-only source.</strong> This source can be reviewed but is not automatically edited.</p>');
+			var form = Number(item.editable) === 1 ? translateMarkup('<div class="sblc-repair-form"><label for="sblc-new-url-' + escapeHtml(item.id) + '">Replacement URL</label><input class="sblc-input" id="sblc-new-url-' + escapeHtml(item.id) + '" type="url" value="' + escapeHtml(resource.final_url && resource.status === 'redirect' ? resource.final_url : '') + '" data-repair-url="' + escapeHtml(item.id) + '" /><div class="sblc-actions"><button type="button" class="sblc-button sblc-button-primary" data-action="apply-repair" data-occurrence-id="' + escapeHtml(item.id) + '" data-operation="replace">Replace URL</button><button type="button" class="sblc-button sblc-button-secondary" data-action="apply-repair" data-occurrence-id="' + escapeHtml(item.id) + '" data-operation="nofollow">Add nofollow</button><button type="button" class="sblc-button sblc-button-secondary" data-action="apply-repair" data-occurrence-id="' + escapeHtml(item.id) + '" data-operation="unlink">Unlink</button></div></div>') : translateMarkup('<p><strong>Read-only source.</strong> This source can be reviewed but is not automatically edited.</p>');
 			return translateMarkup('<article class="sblc-occurrence"><strong>' + escapeHtml(item.source_title || t('Untitled source')) + '</strong><p>' + escapeHtml(item.source_type) + ' · ' + escapeHtml(item.source_field) + ' · ' + escapeHtml(item.location) + '</p><p><a href="' + escapeHtml(item.source_url) + '" target="_blank" rel="noopener noreferrer">Open source</a></p><p>' + escapeHtml(item.context || item.anchor_text || '') + '</p>' + form + '</article>');
 		}).join('');
 		var repairs = (resource.repairs || []).map(function (item) {
@@ -457,7 +469,13 @@
 			root.querySelector('[data-screen-content]').innerHTML = '<div class="sblc-loading">' + escapeHtml(t('Loading findings…')) + '</div>';
 		}
 		var requestId = ++state.refreshId;
+		var initialScope = state.scope;
+		function loadList() {
+			var query = '?page=' + state.page + '&per_page=' + state.perPage + '&status=' + encodeURIComponent(state.status) + '&type=' + encodeURIComponent(state.type) + '&scope=' + encodeURIComponent(state.scope) + '&search=' + encodeURIComponent(state.search);
+			return api('/resources' + query);
+		}
 		var dashboardRequest = api('/dashboard');
+		var listRequest = loadList();
 		var progressRequest = dashboardRequest.then(function (dashboard) {
 			if (requestId === state.refreshId) {
 				if (!state.scopeInitialized) {
@@ -466,7 +484,6 @@
 				}
 				state.lastProgress = dashboard.progress;
 				if ( ! isActiveScan( dashboard.progress ) ) {
-					clearLiveNotice();
 					window.clearTimeout(state.reconcileTimer);
 					state.reconcileTimer = null;
 					state.unchangedSteps = 0;
@@ -477,9 +494,8 @@
 			}
 			return dashboard;
 		});
-		return progressRequest.then(function (dashboard) {
-			var query = '?page=' + state.page + '&per_page=' + state.perPage + '&status=' + encodeURIComponent(state.status) + '&type=' + encodeURIComponent(state.type) + '&scope=' + encodeURIComponent(state.scope) + '&search=' + encodeURIComponent(state.search);
-			return api('/resources' + query).then(function (list) { return { dashboard: dashboard, list: list }; });
+		return Promise.all([progressRequest, listRequest]).then(function (responses) {
+			return (initialScope === state.scope ? Promise.resolve(responses[1]) : loadList()).then(function (list) { return { dashboard: responses[0], list: list }; });
 		}).then(function (responses) {
 			if (requestId !== state.refreshId) { return; }
 			var dashboard = responses.dashboard;
@@ -488,7 +504,11 @@
 			renderFindings(dashboard);
 			if (shouldResume) { resumeActiveScan(dashboard.progress); }
 		}).catch(function (error) {
-			if (requestId === state.refreshId) { notice(error.message, 'error'); }
+			if (requestId === state.refreshId) {
+				var content = root.querySelector('[data-screen-content]');
+				if (!content.querySelector('.sblc-toolbar')) { content.innerHTML = '<div class="sblc-empty"><p>' + escapeHtml(t('Findings could not be loaded.')) + '</p>' + button(t('Try again'), 'retry-findings') + '</div>'; }
+				notice(error.message, 'error');
+			}
 		});
 	}
 
@@ -605,8 +625,11 @@
 		}
 		if (action === 'open-resource') {
 			state.drawerOpener = target;
-			api('/resource/' + encodeURIComponent(target.getAttribute('data-resource-id'))).then(renderDrawer).catch(function (error) { state.drawerOpener = null; notice(error.message, 'error'); }); return;
+			var evidenceLabel = target.textContent;
+			target.disabled = true; target.textContent = t('Loading…'); target.setAttribute('aria-busy', 'true');
+			api('/resource/' + encodeURIComponent(target.getAttribute('data-resource-id'))).then(renderDrawer).catch(function (error) { state.drawerOpener = null; notice(error.message, 'error'); }).finally(function () { target.disabled = false; target.textContent = evidenceLabel; target.removeAttribute('aria-busy'); }); return;
 		}
+		if (action === 'retry-findings') { refresh(); return; }
 		if (action === 'close-drawer') { closeDrawer(); return; }
 		if (action === 'start-scan') {
 			window.clearTimeout(state.monitorTimer);
@@ -638,7 +661,16 @@
 			var occurrenceId = target.getAttribute('data-occurrence-id'); var input = root.querySelector('[data-repair-url="' + occurrenceId + '"]'); var operation = target.getAttribute('data-operation');
 			if (operation === 'unlink' && !window.confirm(t('Unlink this occurrence while preserving its visible text?'))) { return; }
 			if (operation !== 'unlink' && !window.confirm(t('This will change stored WordPress content and create an undo record. Continue?'))) { return; }
-			post('/repair', { occurrence_id: Number(occurrenceId), operation: operation, new_url: input ? input.value : '' }).then(function (result) { notice(result.message || t('Source updated.'), 'success'); closeDrawer(); refresh(); }).catch(function (error) { notice(error.message, 'error'); }); return;
+			var repairButtons = target.closest('.sblc-repair-form').querySelectorAll('[data-action="apply-repair"]');
+			var repairLabel = target.textContent;
+			repairButtons.forEach(function (control) { control.disabled = true; });
+			target.setAttribute('aria-busy', 'true'); target.textContent = t('Saving…');
+			post('/repair', { occurrence_id: Number(occurrenceId), operation: operation, new_url: input ? input.value : '' }).then(function (result) { closeDrawer(); notice(result.message || t('Source updated.'), 'success'); refresh(); }).catch(function (error) {
+				var form = target.closest('.sblc-repair-form');
+				var message = form.querySelector('[data-repair-error]') || document.createElement('p');
+				message.setAttribute('data-repair-error', ''); message.setAttribute('role', 'alert'); message.textContent = error.message;
+				form.insertBefore(message, form.firstChild);
+			}).finally(function () { repairButtons.forEach(function (control) { control.disabled = false; }); target.textContent = repairLabel; target.removeAttribute('aria-busy'); }); return;
 		}
 		if (action === 'save-settings') {
 			event.preventDefault(); var form = root.querySelector('[data-settings-form]'); var formData = new FormData(form); var payload = {};

@@ -1,19 +1,26 @@
 # LinkSolva Broken Link Checker roadmap
 
-Updated 29 October 2026.
+Updated 30 October 2026.
 
 ## Product position
 
-LinkSolva's useful distinction is that link discovery, evidence, and repairs stay inside the customer's WordPress site. The WordPress.org directory currently lists Broken Link Checker by AIOSEO with 200,000+ active installations and Link Checker with 4,000+ active installations. AIOSEO's directory description says its free tier checks up to 250 internal links each month and runs scanning as a cloud service. These figures and plan details are a dated directory snapshot, not a forecast.
+LinkSolva's position is a local scanner with evidence and careful repairs. It should compete on dependable results, low hosting overhead, and clear controls; comparative performance claims require equivalent independent measurements.
 
-The product should compete on local control, useful evidence, careful treatment of uncertain failures, broad source coverage, and safe repairs. It should not claim to be faster or safer without measurements.
+## Competitor observations (30 October 2026)
 
-Current references:
+These are descriptions from the plugins' own directory pages, not independently verified benchmarks:
 
-- [Broken Link Checker directory tag](https://wordpress.org/plugins/tags/broken-link-checker/)
-- [Broken Link Checker by AIOSEO](https://wordpress.org/plugins/broken-link-checker-seo/)
-- [Link Checker](https://wordpress.org/plugins/link-checker/)
-- [Awlware Link Checker](https://wordpress.org/plugins/awlware-link-checker/), a useful local-scanner feature benchmark for WP-CLI, source coverage, host pacing, and retry behavior.
+- [Broken Link Checker by WPMU DEV](https://wordpress.org/plugins/broken-link-checker/) offers local and cloud engines; its [support guidance](https://wordpress.org/support/topic/blc-plugin-causing-daily-downtime/) recommends lowering the local resource target and load limit when scans cause trouble. The directory reports 500,000+ active installations.
+- [Broken Link Checker by AIOSEO](https://wordpress.org/plugins/broken-link-checker-seo/) moves scanning to its cloud service, trading a separate account and service limits for less on-site scan work. The directory reports 200,000+ active installations.
+- [Awlware Link Checker](https://wordpress.org/plugins/awlware-link-checker/) describes short worker slices, local resolution for eligible internal links, paced per-host requests, connection address pinning, and WP-CLI. It is a useful design reference, not a comparably established competitor; its directory lists fewer than 10 active installations.
+- [Link Invader](https://wordpress.org/plugins/link-invader/) describes bounded work, per-host throttling, local internal-link resolution and a WP-CLI runner. Evaluate each technique against LinkSolva's own correctness and resource measurements.
+
+## Current candidate: 1.0.21
+
+- Current changes give a fresh worker more time for a request, bound retries, load dashboard data concurrently, count source locations for the visible page, and show evidence and repair progress. Expired REST nonces can be refreshed for signed-in administrators; an expired login still requires signing in.
+- GitHub tests cover WordPress Plugin Check, PHP compatibility, a 2,000-URL synthetic fixture, browser evidence and unlink flows, permission handling, and conflict-aware undo. The synthetic 2,000-URL scan does not send network requests. Results are not measurements of customer hosting or competitor performance.
+- The browser workflow captures real plugin screens with labelled sample findings and performs a five-URL HTTP scan against a local fixture: healthy, 404, redirect, two-second response and HEAD-to-GET fallback. On the 30 October GitHub runner, one run took 2.16 seconds; PHP web-server processes peaked at 375.7 MiB summed RSS and 10% summed `ps` lifetime-average CPU. This includes the server and workers, double-counts shared memory, and is not a per-request or shared-host benchmark. Expand the workload and record idle baselines before drawing performance conclusions.
+- Do not treat unverified URLs as healthy or confirmed broken, or replace site-level HTTP evidence with a database lookup unless the meaning and limitations of the local result are clear.
 
 ## MVP definition
 
@@ -62,14 +69,14 @@ The current release already provides much of this baseline: local scans, posts a
 ### P0: preserve trust during long scans
 
 - Stage scan results and promote them only after a scan completes. A failed, cancelled, or interrupted scan should leave the previous completed report available. The current scanner resets the visible occurrence view when a new scan starts, so this needs a data-model change and migration plan.
-- Add host-aware request limits and honor `Retry-After`. Space retries for 429, 5xx, timeouts, and connection failures so several URLs on one remote host do not create a burst.
-- Measure memory, database growth, request counts, and worker duration on small and large fixture sites before changing defaults.
-- Verify same-site links through local WordPress data when possible, while retaining HTTP checks where status, redirects, or rendered behavior require them.
+- Add host-aware request limits, honor `Retry-After`, and persist spaced retry schedules for 429, 5xx, timeouts, and connection failures. Test rate limiting, cancellation, cron delays, and host fairness; do not introduce an unbounded queue.
+- Measure CPU, process memory, database growth, request counts, dashboard latency, and worker duration with real HTTP traffic on small and large fixture sites. Record idle baseline and account for shared-memory reporting; compare default and low-resource concurrency profiles before changing defaults.
+- Resolve eligible same-site post and media existence locally when semantics are unambiguous. Preserve HTTP checks for redirects, access restrictions, status, cached pages, and rendered behavior; never equate an existing database record with a verified HTTP 200.
 
 ### P1: close source-coverage gaps
 
 - Add excerpts and additional common sources such as widgets, block navigation, synced patterns, and site-editor templates.
-- Inspect `srcset`, iframe, video, and audio URLs where the stored source can be parsed safely.
+- Audit and test existing `srcset`, video, and audio extraction; add iframe coverage where stored content can be parsed safely.
 - Add popular page-builder adapters as read-only first. Enable editing only after a source-specific save and undo path exists.
 - Keep source-type labels and editability visible so users know which findings can be changed in place.
 

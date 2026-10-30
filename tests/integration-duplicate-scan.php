@@ -19,6 +19,8 @@ if ( 'completed' !== $progress['state'] || 10 !== $progress['stats']['total_reso
 	throw new RuntimeException( 'Repeated URLs must finish with 10 checked URLs and 22 occurrences.' );
 }
 $slow = static function ( $sql ) { usleep( 3200000 ); return $sql; };
+$previous_limit = ini_get( 'max_execution_time' );
+ini_set( 'max_execution_time', '5' );
 add_filter( 'posts_request', $slow );
 $progress = Scanner::start();
 if ( is_wp_error( $progress ) ) { throw new RuntimeException( 'No-progress scan did not start.' ); }
@@ -27,6 +29,7 @@ for ( $i = 0; $i < 6 && 'discovering' === $progress['state']; ++$i ) {
 	if ( is_wp_error( $progress ) ) { throw new RuntimeException( 'No-progress worker returned an unexpected error.' ); }
 }
 remove_filter( 'posts_request', $slow );
+ini_set( 'max_execution_time', $previous_limit );
 if ( 'failed' !== $progress['state'] || false === strpos( $progress['message'], 'incomplete' ) ) {
 	throw new RuntimeException( 'Repeated no-progress requests must stop with an incomplete report.' );
 }
