@@ -228,9 +228,6 @@ final class Scanner {
 		if ( ! $scan ) {
 			$scan = Database::get_latest_scan();
 		}
-		if ( $scan ) {
-			$scan = self::reconcile_scan( $scan );
-		}
 		return self::progress( $scan );
 	}
 

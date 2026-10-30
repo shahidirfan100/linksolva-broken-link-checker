@@ -2,6 +2,7 @@
 	'use strict';
 
 	var config = window.LINKSOLVA_BLC_DATA || {};
+	var nonceRefresh = null;
 	var root = document.getElementById('sblc-app');
 	if (!root) {
 		return;
@@ -73,7 +74,19 @@
 		return template.innerHTML;
 	}
 
-	function api(path, options) {
+	function renewNonce() {
+		if (!nonceRefresh) {
+			nonceRefresh = fetch(config.ajaxUrl + '?action=sblc_refresh_rest_nonce', { credentials: 'same-origin', cache: 'no-store' }).then(function (response) {
+				return response.json().then(function (body) {
+					if (!response.ok || !body.success || !body.data || !body.data.nonce) { throw new Error(t('Your session has expired or you do not have permission. Sign in again.')); }
+					config.nonce = body.data.nonce;
+				});
+			}).finally(function () { nonceRefresh = null; });
+		}
+		return nonceRefresh;
+	}
+
+	function api(path, options, retried) {
 		var endpoint = config.restUrl + path;
 		var queryAt = path.indexOf('?');
 		if (queryAt !== -1 && config.restUrl.indexOf('?rest_route=') !== -1) {
@@ -91,8 +104,8 @@
 			request = new Promise(function (resolve, reject) {
 				var timeoutId = window.setTimeout(function () {
 					if ( controller ) { controller.abort(); }
-					reject(new Error(t('The scan status request timed out.')));
-				}, 30000);
+					reject(new Error(t('The request timed out. Try again.')));
+				}, '/scan/step' === path ? 30000 : 15000);
 				fetch(endpoint, options).then(function (response) {
 					window.clearTimeout(timeoutId);
 					resolve(response);
@@ -107,6 +120,9 @@
 		return request.then(function (response) {
 			return response.json().catch(function () { return {}; }).then(function (body) {
 				if (!response.ok) {
+					if (!retried && response.status === 403 && body.code === 'rest_cookie_invalid_nonce' && config.ajaxUrl) {
+						return renewNonce().then(function () { delete options.signal; return api(path, options, true); });
+					}
 					throw new Error(body.message || t('The request could not be completed.'));
 				}
 				return body;
@@ -131,11 +147,6 @@
 		if (main) {
 			main.insertBefore(element, main.firstChild);
 		}
-	}
-
-	function clearLiveNotice() {
-		var existing = root.querySelector('.sblc-notice-live');
-		if (existing) { existing.remove(); }
 	}
 
 	function button(label, action, extraClass, extra) {
@@ -457,7 +468,13 @@
 			root.querySelector('[data-screen-content]').innerHTML = '<div class="sblc-loading">' + escapeHtml(t('Loading findings…')) + '</div>';
 		}
 		var requestId = ++state.refreshId;
+		var initialScope = state.scope;
+		function loadList() {
+			var query = '?page=' + state.page + '&per_page=' + state.perPage + '&status=' + encodeURIComponent(state.status) + '&type=' + encodeURIComponent(state.type) + '&scope=' + encodeURIComponent(state.scope) + '&search=' + encodeURIComponent(state.search);
+			return api('/resources' + query);
+		}
 		var dashboardRequest = api('/dashboard');
+		var listRequest = loadList();
 		var progressRequest = dashboardRequest.then(function (dashboard) {
 			if (requestId === state.refreshId) {
 				if (!state.scopeInitialized) {
@@ -466,7 +483,6 @@
 				}
 				state.lastProgress = dashboard.progress;
 				if ( ! isActiveScan( dashboard.progress ) ) {
-					clearLiveNotice();
 					window.clearTimeout(state.reconcileTimer);
 					state.reconcileTimer = null;
 					state.unchangedSteps = 0;
@@ -477,9 +493,8 @@
 			}
 			return dashboard;
 		});
-		return progressRequest.then(function (dashboard) {
-			var query = '?page=' + state.page + '&per_page=' + state.perPage + '&status=' + encodeURIComponent(state.status) + '&type=' + encodeURIComponent(state.type) + '&scope=' + encodeURIComponent(state.scope) + '&search=' + encodeURIComponent(state.search);
-			return api('/resources' + query).then(function (list) { return { dashboard: dashboard, list: list }; });
+		return Promise.all([progressRequest, listRequest]).then(function (responses) {
+			return (initialScope === state.scope ? Promise.resolve(responses[1]) : loadList()).then(function (list) { return { dashboard: responses[0], list: list }; });
 		}).then(function (responses) {
 			if (requestId !== state.refreshId) { return; }
 			var dashboard = responses.dashboard;
@@ -488,7 +503,11 @@
 			renderFindings(dashboard);
 			if (shouldResume) { resumeActiveScan(dashboard.progress); }
 		}).catch(function (error) {
-			if (requestId === state.refreshId) { notice(error.message, 'error'); }
+			if (requestId === state.refreshId) {
+				var content = root.querySelector('[data-screen-content]');
+				if (!content.querySelector('.sblc-toolbar')) { content.innerHTML = '<div class="sblc-empty"><p>' + escapeHtml(t('Findings could not be loaded.')) + '</p>' + button(t('Try again'), 'retry-findings') + '</div>'; }
+				notice(error.message, 'error');
+			}
 		});
 	}
 
@@ -605,8 +624,11 @@
 		}
 		if (action === 'open-resource') {
 			state.drawerOpener = target;
-			api('/resource/' + encodeURIComponent(target.getAttribute('data-resource-id'))).then(renderDrawer).catch(function (error) { state.drawerOpener = null; notice(error.message, 'error'); }); return;
+			var evidenceLabel = target.textContent;
+			target.disabled = true; target.textContent = t('Loading…'); target.setAttribute('aria-busy', 'true');
+			api('/resource/' + encodeURIComponent(target.getAttribute('data-resource-id'))).then(renderDrawer).catch(function (error) { state.drawerOpener = null; notice(error.message, 'error'); }).finally(function () { target.disabled = false; target.textContent = evidenceLabel; target.removeAttribute('aria-busy'); }); return;
 		}
+		if (action === 'retry-findings') { refresh(); return; }
 		if (action === 'close-drawer') { closeDrawer(); return; }
 		if (action === 'start-scan') {
 			window.clearTimeout(state.monitorTimer);
@@ -638,7 +660,16 @@
 			var occurrenceId = target.getAttribute('data-occurrence-id'); var input = root.querySelector('[data-repair-url="' + occurrenceId + '"]'); var operation = target.getAttribute('data-operation');
 			if (operation === 'unlink' && !window.confirm(t('Unlink this occurrence while preserving its visible text?'))) { return; }
 			if (operation !== 'unlink' && !window.confirm(t('This will change stored WordPress content and create an undo record. Continue?'))) { return; }
-			post('/repair', { occurrence_id: Number(occurrenceId), operation: operation, new_url: input ? input.value : '' }).then(function (result) { notice(result.message || t('Source updated.'), 'success'); closeDrawer(); refresh(); }).catch(function (error) { notice(error.message, 'error'); }); return;
+			var repairButtons = target.closest('.sblc-repair-form').querySelectorAll('[data-action="apply-repair"]');
+			var repairLabel = target.textContent;
+			repairButtons.forEach(function (control) { control.disabled = true; });
+			target.setAttribute('aria-busy', 'true'); target.textContent = t('Saving…');
+			post('/repair', { occurrence_id: Number(occurrenceId), operation: operation, new_url: input ? input.value : '' }).then(function (result) { closeDrawer(); notice(result.message || t('Source updated.'), 'success'); refresh(); }).catch(function (error) {
+				var form = target.closest('.sblc-repair-form');
+				var message = form.querySelector('[data-repair-error]') || document.createElement('p');
+				message.setAttribute('data-repair-error', ''); message.setAttribute('role', 'alert'); message.textContent = error.message;
+				form.insertBefore(message, form.firstChild);
+			}).finally(function () { repairButtons.forEach(function (control) { control.disabled = false; }); target.textContent = repairLabel; target.removeAttribute('aria-busy'); }); return;
 		}
 		if (action === 'save-settings') {
 			event.preventDefault(); var form = root.querySelector('[data-settings-form]'); var formData = new FormData(form); var payload = {};

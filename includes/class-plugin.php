@@ -44,6 +44,7 @@ final class Plugin {
 		add_action( 'admin_menu', array( Admin::class, 'menu' ) );
 		add_action( 'admin_enqueue_scripts', array( Admin::class, 'assets' ) );
 		add_action( 'admin_post_sblc_export', array( Admin::class, 'export' ) );
+		add_action( 'wp_ajax_sblc_refresh_rest_nonce', array( Admin::class, 'refresh_rest_nonce' ) );
 		add_action( 'rest_api_init', array( Rest::class, 'register' ) );
 		add_action( 'sblc_worker', array( Scanner::class, 'scheduled_step' ) );
 	}

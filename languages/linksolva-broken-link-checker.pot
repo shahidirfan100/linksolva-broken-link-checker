@@ -1167,3 +1167,21 @@ msgstr ""
 #: includes/class-scanner.php
 msgid "The scan stopped because the worker could not advance after several attempts. The report is incomplete; check your hosting limits and try again."
 msgstr ""
+
+msgid "Your session has expired or you do not have permission. Sign in again."
+msgstr ""
+
+msgid "Findings could not be loaded."
+msgstr ""
+
+msgid "Try again"
+msgstr ""
+
+msgid "Loading…"
+msgstr ""
+
+msgid "Saving…"
+msgstr ""
+
+msgid "The request timed out. Try again."
+msgstr ""

@@ -781,23 +781,40 @@ final class Database {
 		}
 		$where_sql    = implode( ' AND ', $where );
 		$count_sql    = "SELECT COUNT(*) FROM %i r WHERE {$where_sql}";
-		$list_sql     = "SELECT r.*, COUNT(o.id) AS occurrence_count FROM %i r LEFT JOIN %i o ON o.resource_id = r.id WHERE {$where_sql} GROUP BY r.id ORDER BY FIELD(r.status, 'broken','redirect','blocked','rate_limited','temporary_error','ssl_error','dns_error','timeout','unverified','pending','healthy','ignored'), r.last_checked DESC, r.id DESC LIMIT %d OFFSET %d";
+		$list_sql     = "SELECT r.* FROM %i r WHERE {$where_sql} ORDER BY FIELD(r.status, 'broken','redirect','blocked','rate_limited','temporary_error','ssl_error','dns_error','timeout','unverified','pending','healthy','ignored'), r.last_checked DESC, r.id DESC LIMIT %d OFFSET %d";
 		$count_params = $params;
 		array_unshift( $count_params, $tables['resources'] );
 		$list_params = $params;
-		array_unshift( $list_params, $tables['resources'], $tables['occurrences'] );
+		array_unshift( $list_params, $tables['resources'] );
 		$list_params[] = $per_page;
 		$list_params[] = ( $page - 1 ) * $per_page;
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Query fragments are allowlisted above and all values use placeholders.
 		$count_query = $wpdb->prepare( $count_sql, $count_params );
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Query fragments are allowlisted above and all values use placeholders.
 		$list_query = $wpdb->prepare( $list_sql, $list_params );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Prepared query reads the current page.
+		$items = $wpdb->get_results( $list_query );
+		if ( ! is_array( $items ) ) {
+			throw new \RuntimeException( 'Could not read findings from the database.' );
+		}
+		if ( $items ) {
+			$ids          = array_map( 'absint', wp_list_pluck( $items, 'id' ) );
+			$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+			$values       = array_merge( array( $tables['occurrences'] ), $ids );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only integer placeholders are generated, and the page IDs are prepared.
+			$occurrences = $wpdb->get_results( $wpdb->prepare( "SELECT resource_id, COUNT(*) AS total FROM %i WHERE resource_id IN ({$placeholders}) GROUP BY resource_id", $values ), OBJECT_K );
+			if ( ! is_array( $occurrences ) ) {
+				throw new \RuntimeException( 'Could not read source counts from the database.' );
+			}
+			foreach ( $items as $item ) {
+				$item->occurrence_count = isset( $occurrences[ $item->id ] ) ? absint( $occurrences[ $item->id ]->total ) : 0;
+			}
+		}
 		return array(
 			'filter_counts' => self::counts( $args ),
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Query is prepared from allowlisted clauses and must not be cached.
 			'total' => (int) $wpdb->get_var( $count_query ),
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Query is prepared from allowlisted clauses and must not be cached.
-			'items' => $wpdb->get_results( $list_query ),
+			'items' => $items,
 		);
 	}
 

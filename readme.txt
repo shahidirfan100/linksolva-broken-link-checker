@@ -4,7 +4,7 @@ Tags: broken links, link checker, broken images, redirects, local scanner
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.20
+Stable tag: 1.0.21
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -105,7 +105,8 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 
 == Changelog ==
 
-= 1.0.20 =
+= 1.0.21 =
+* Speed up findings, show repair errors in the evidence panel, and renew expired REST security tokens for signed-in administrators.
 * Give URL checks more time within the available PHP worker limit and retry timeouts automatically before reporting them for review.
 * Improve scan progress, filtered findings, history, discovery and recovery on larger sites.
 * Hide repair controls for read-only source locations.
@@ -176,7 +177,7 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 
 == Upgrade Notice ==
 
-= 1.0.20 =
+= 1.0.21 =
 Improves timeout handling and scan progress. Unreachable URLs remain unverified after the configured retries.
 
 = 1.0.11 =
