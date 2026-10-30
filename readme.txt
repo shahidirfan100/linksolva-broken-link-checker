@@ -108,6 +108,7 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 = 1.0.20 =
 * Give URL checks more time within the available PHP worker limit and retry timeouts automatically before reporting them for review.
 * Improve scan progress, filtered findings, history, discovery and recovery on larger sites.
+* Hide repair controls for read-only source locations.
 
 = 1.0.11 =
 * Added WordPress Plugin Check and PHP syntax checks to GitHub Actions.
