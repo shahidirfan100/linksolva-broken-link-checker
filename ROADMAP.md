@@ -19,7 +19,7 @@ These are descriptions from the plugins' own directory pages, not independently 
 
 - Current changes give a fresh worker more time for a request, bound retries, load dashboard data concurrently, count source locations for the visible page, and show evidence and repair progress. Expired REST nonces can be refreshed for signed-in administrators; an expired login still requires signing in.
 - GitHub tests cover WordPress Plugin Check, PHP compatibility, a 2,000-URL synthetic fixture, browser evidence and unlink flows, permission handling, and conflict-aware undo. The synthetic 2,000-URL scan does not send network requests. Results are not measurements of customer hosting or competitor performance.
-- The browser workflow captures real plugin screens with labelled sample findings. A separate controlled real HTTP scan should exercise actual requests, slow responses, redirects, and browser-driven scan completion; track CPU, memory and latency with the environment and limitations stated.
+- The browser workflow captures real plugin screens with labelled sample findings and performs a five-URL HTTP scan against a local fixture: healthy, 404, redirect, two-second response and HEAD-to-GET fallback. On the 30 October GitHub runner, one run took 2.16 seconds; PHP web-server processes peaked at 375.7 MiB summed RSS and 10% summed `ps` lifetime-average CPU. This includes the server and workers, double-counts shared memory, and is not a per-request or shared-host benchmark. Expand the workload and record idle baselines before drawing performance conclusions.
 - Do not treat unverified URLs as healthy or confirmed broken, or replace site-level HTTP evidence with a database lookup unless the meaning and limitations of the local result are clear.
 
 ## MVP definition

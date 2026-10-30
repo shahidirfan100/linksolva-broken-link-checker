@@ -119,7 +119,24 @@ let page;
     const row = page.locator('[data-resource-row]').filter({ hasText: 'case=' + name });
     if (!(await row.innerText()).includes(status)) throw new Error('Unexpected real HTTP scan result for ' + name + ': ' + await row.innerText());
   }
-  console.log('Real HTTP scan: URLs=5, elapsed=' + ((Date.now() - scanStart) / 1000).toFixed(2) + 's, peak summed PHP RSS=' + (Math.max(...samples.map(value => value.rss)) / 1024).toFixed(1) + ' MiB, peak sampled PHP CPU=' + Math.max(...samples.map(value => value.cpu)).toFixed(1) + '% (summed process RSS includes shared pages).');
+  console.log('Real HTTP scan: URLs=5, elapsed=' + ((Date.now() - scanStart) / 1000).toFixed(2) + 's, peak summed PHP RSS=' + (Math.max(...samples.map(value => value.rss)) / 1024).toFixed(1) + ' MiB, peak summed ps lifetime-average PHP CPU=' + Math.max(...samples.map(value => value.cpu)).toFixed(1) + '% (RSS includes shared pages and all PHP server workers).');
+  await page.locator('[data-resource-row]').filter({ hasText: 'case=head-unsupported' }).locator('[data-action="open-resource"]').click();
+  await page.locator('[role="dialog"]').getByText('Request history', { exact: true }).waitFor();
+  const evidence = await page.locator('[role="dialog"]').innerText();
+  if (!evidence.includes('HEAD') || !evidence.includes('GET')) throw new Error('The real HEAD fallback was not shown in evidence');
+  await page.keyboard.press('Escape');
+  await page.locator('[data-action="filter-status"][data-status="broken"]').click();
+  const missing = page.locator('[data-resource-row]').filter({ hasText: 'case=missing' });
+  await missing.waitFor();
+  await missing.locator('[data-action="open-resource"]').click();
+  await page.locator('[role="dialog"]').getByText('404 Not Found').waitFor();
+  await page.locator('[data-action="apply-repair"][data-operation="unlink"]').click();
+  await page.getByText('The link was unlinked and removed from the finding when no sources still used it.').waitFor();
+  await page.evaluate(async id => {
+    const response = await fetch('/?rest_route=/wp/v2/posts/' + id + '&context=edit', { headers: { 'X-WP-Nonce': window.LINKSOLVA_BLC_DATA.nonce } });
+    const post = await response.json();
+    if (!response.ok || post.content.raw.includes('href="http://127.0.0.1:8080/sblc-test-target.php?case=missing"') || !post.content.raw.includes('case=healthy')) throw new Error('Real scan unlink did not preserve the other links');
+  }, postId);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('http://127.0.0.1:8080/wp-admin/admin.php?page=sblc-dashboard');
   await page.locator('[data-resource-row]').first().waitFor();
