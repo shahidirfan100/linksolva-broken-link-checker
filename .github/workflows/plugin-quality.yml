@@ -177,7 +177,8 @@ jobs:
           cp -R . /tmp/linksolva-ui-wp/wp-content/plugins/linksolva-broken-link-checker/
           php /tmp/wp.phar plugin activate linksolva-broken-link-checker --path=/tmp/linksolva-ui-wp
           php /tmp/wp.phar eval-file tests/screenshot-fixture.php --path=/tmp/linksolva-ui-wp
-          php -S 127.0.0.1:8080 -t /tmp/linksolva-ui-wp >/tmp/linksolva-ui-server.log 2>&1 &
+          cp tests/http-fixture.php /tmp/linksolva-ui-wp/sblc-test-target.php
+          PHP_CLI_SERVER_WORKERS=4 php -S 127.0.0.1:8080 -t /tmp/linksolva-ui-wp >/tmp/linksolva-ui-server.log 2>&1 &
       - name: Install browser
         run: |
           npm install --prefix /tmp/linksolva-ui playwright@1.55.1

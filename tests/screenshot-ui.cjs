@@ -1,5 +1,6 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
+const { execFileSync } = require('child_process');
 let page;
 (async () => {
   const browser = await chromium.launch({ headless: true });
@@ -71,9 +72,54 @@ let page;
   await page.getByText('The link was unlinked and removed from the finding when no sources still used it.').waitFor();
   if (repairAttempts !== 4) throw new Error('Expired nonce was not refreshed and retried exactly once');
   await page.unroute('**/*', repairRoute);
+  const postId = await page.evaluate(async () => {
+    const headers = { 'X-WP-Nonce': window.LINKSOLVA_BLC_DATA.nonce };
+    const response = await fetch('/?rest_route=/wp/v2/posts&search=Sample%20article&context=edit', { headers });
+    const posts = await response.json();
+    if (!response.ok || posts.length !== 1 || posts[0].content.raw.includes('href="https://example.com/missing-page"')) throw new Error('Unlink did not change the WordPress post');
+    return posts[0].id;
+  });
   await page.goto('http://127.0.0.1:8080/wp-admin/admin.php?page=sblc-settings');
   await page.locator('#sblc-timeout').waitFor();
   await page.screenshot({ path: 'screenshots/screenshot-4.png', fullPage: true });
+  await page.locator('#sblc-timeout').fill('9');
+  await page.locator('[data-action="save-settings"]').click();
+  await page.getByText('Settings saved.').waitFor();
+  await page.reload();
+  await page.locator('#sblc-timeout').waitFor();
+  if (await page.locator('#sblc-timeout').inputValue() !== '9') throw new Error('Settings did not persist');
+
+  await page.evaluate(async id => {
+    const urls = ['healthy', 'missing', 'redirect', 'slow', 'head-unsupported'];
+    const content = urls.map(value => '<a href="http://127.0.0.1:8080/sblc-test-target.php?case=' + value + '">' + value + '</a>').join(' ');
+    const response = await fetch('/?rest_route=/wp/v2/posts/' + id, { method: 'POST', headers: { 'X-WP-Nonce': window.LINKSOLVA_BLC_DATA.nonce, 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+    if (!response.ok) throw new Error('Could not update the real scan fixture');
+  }, postId);
+  await page.goto('http://127.0.0.1:8080/wp-admin/admin.php?page=sblc-dashboard');
+  await page.locator('[data-action="start-scan"]').waitFor();
+  const samples = [];
+  const sample = () => {
+    try {
+      const rows = execFileSync('ps', ['-C', 'php', '-o', 'rss=,%cpu='], { encoding: 'utf8' }).trim().split('\n');
+      const values = rows.map(row => row.trim().split(/\s+/).map(Number));
+      samples.push({ rss: values.reduce((sum, value) => sum + value[0], 0), cpu: values.reduce((sum, value) => sum + value[1], 0) });
+    } catch (error) { throw new Error('Could not sample PHP worker resources: ' + error.message); }
+  };
+  sample();
+  const sampler = setInterval(sample, 250);
+  const scanStart = Date.now();
+  await Promise.all([
+    page.waitForResponse(response => decodeURIComponent(response.url()).includes('/sblc/v1/scan/start') && response.request().method() === 'POST'),
+    page.locator('[data-action="start-scan"]').click()
+  ]);
+  await page.locator('[data-action="start-scan"]').waitFor({ state: 'visible', timeout: 120000 });
+  await page.locator('[data-resource-row]').filter({ hasText: 'case=slow' }).waitFor();
+  clearInterval(sampler);
+  for (const [name, status] of [['healthy', 'Healthy'], ['missing', 'Broken'], ['redirect', 'Redirects'], ['slow', 'Healthy'], ['head-unsupported', 'Healthy']]) {
+    const row = page.locator('[data-resource-row]').filter({ hasText: 'case=' + name });
+    if (!(await row.innerText()).includes(status)) throw new Error('Unexpected real HTTP scan result for ' + name + ': ' + await row.innerText());
+  }
+  console.log('Real HTTP scan: URLs=5, elapsed=' + ((Date.now() - scanStart) / 1000).toFixed(2) + 's, peak summed PHP RSS=' + (Math.max(...samples.map(value => value.rss)) / 1024).toFixed(1) + ' MiB, peak sampled PHP CPU=' + Math.max(...samples.map(value => value.cpu)).toFixed(1) + '% (summed process RSS includes shared pages).');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('http://127.0.0.1:8080/wp-admin/admin.php?page=sblc-dashboard');
   await page.locator('[data-resource-row]').first().waitFor();

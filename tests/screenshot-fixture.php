@@ -2,6 +2,7 @@
 /** Populate the disposable screenshot site with labelled sample findings. */
 use LinkSolva\BrokenLinkChecker\Database;
 
+foreach ( get_posts( array( 'post_type' => array( 'post', 'page' ), 'post_status' => 'any', 'numberposts' => -1, 'fields' => 'ids' ) ) as $id ) { wp_delete_post( $id, true ); }
 $scan = Database::insert_scan();
 $post = wp_insert_post( array( 'post_title' => 'Sample article', 'post_status' => 'publish', 'post_content' => '<p>Sample data: <a href="https://example.com/missing-page">missing page</a>, <a href="https://example.com/old-page">old page</a>, <a href="https://example.com/slow-page">slow page</a>, <a href="https://example.com/working-page">working page</a>.</p>' ) );
 if ( ! $scan || ! $post || is_wp_error( $post ) ) { throw new RuntimeException( 'Could not create screenshot fixtures.' ); }
