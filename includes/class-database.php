@@ -607,10 +607,10 @@ final class Database {
 		$table = self::tables()['resources'];
 		if ( in_array( $scope, array( 'internal', 'external' ), true ) ) {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- The live queue is ordered by the requested scope.
-			return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE last_scan_id = %d AND COALESCE(checked_scan_id, 0) <> %d ORDER BY (link_scope = %s) DESC, id ASC LIMIT %d', $table, absint( $scan_id ), absint( $scan_id ), $scope, absint( $limit ) ) );
+			return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE last_scan_id = %d AND COALESCE(checked_scan_id, 0) <> %d ORDER BY (link_scope = %s) DESC, retry_count ASC, id ASC LIMIT %d', $table, absint( $scan_id ), absint( $scan_id ), $scope, absint( $limit ) ) );
 		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Live scan queue must not be cached.
-		return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE last_scan_id = %d AND COALESCE(checked_scan_id, 0) <> %d ORDER BY id ASC LIMIT %d', $table, absint( $scan_id ), absint( $scan_id ), absint( $limit ) ) );
+		return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE last_scan_id = %d AND COALESCE(checked_scan_id, 0) <> %d ORDER BY retry_count ASC, id ASC LIMIT %d', $table, absint( $scan_id ), absint( $scan_id ), absint( $limit ) ) );
 	}
 
 	/**
@@ -919,7 +919,7 @@ final class Database {
 	 * @param array $result      Result fields.
 	 * @return bool
 	 */
-	public static function save_result( $resource_id, $scan_id, $result ) {
+	public static function save_result( $resource_id, $scan_id, $result, $complete = true ) {
 		global $wpdb;
 		$table = self::tables()['resources'];
 		$data  = array(
@@ -936,7 +936,7 @@ final class Database {
 			'last_checked'    => self::now(),
 			'next_check_at'   => ! empty( $result['next_check_at'] ) ? sanitize_text_field( $result['next_check_at'] ) : null,
 			'retry_count'     => absint( $result['retry_count'] ),
-			'checked_scan_id' => absint( $scan_id ),
+			'checked_scan_id' => $complete ? absint( $scan_id ) : 0,
 		);
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct access.
 		return false !== $wpdb->update( $table, $data, array( 'id' => absint( $resource_id ) ), array( '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%s', '%s', '%d', '%d' ), array( '%d' ) );

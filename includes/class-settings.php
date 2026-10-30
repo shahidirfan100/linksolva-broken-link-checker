@@ -189,7 +189,7 @@ final class Settings {
 		$limits   = array(
 			'batch_size'        => min( 10, max( 1, absint( $settings['batch_size'] ) ) ),
 			'parallel_requests' => min( 4, max( 1, absint( $settings['parallel_requests'] ) ) ),
-			'execution_seconds' => max( 1, absint( $settings['execution_seconds'] ) ),
+			'execution_seconds' => max( 1, absint( $settings['execution_seconds'] ), min( 25, absint( $settings['timeout'] ) + 4 ) ),
 		);
 
 		$max_execution_time = absint( ini_get( 'max_execution_time' ) );

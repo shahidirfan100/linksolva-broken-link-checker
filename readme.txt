@@ -4,7 +4,7 @@ Tags: broken links, link checker, broken images, redirects, local scanner
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.19
+Stable tag: 1.0.20
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -44,7 +44,7 @@ Supported post content, approved comment content, and custom menu URLs can be re
 
 ### Resource controls
 
-Scanning runs in small resumable worker requests. The scanner checks discovered URLs in small batches as it continues finding more. During discovery, the percentage shows the share of URLs found so far that have been checked; it can change as new URLs are found. Repeated occurrences do not re-queue a settled URL. Only one worker request processes the scan at a time. Worker duration follows PHP's execution-time limit. Batch size and parallel requests adjust to available PHP memory; no more than four URLs are checked at once. URLs that cannot be checked within a worker's time budget are marked unverified, counted, and shown for manual review instead of remaining queued. Network timeouts also remain unverified. PHP does not reliably expose shared-host CPU quotas, so the plugin uses conservative concurrency limits rather than claiming to measure CPU availability. Manual scanning remains available when WordPress cron is delayed.
+Scanning runs in small resumable worker requests. The scanner checks discovered URLs in small batches as it continues finding more. During discovery, the percentage shows the share of URLs found so far that have been checked; it can change as new URLs are found. Repeated occurrences do not re-queue a settled URL. Only one worker request processes the scan at a time. Worker duration follows PHP's execution-time limit. Batch size and parallel requests adjust to available PHP memory; no more than four URLs are checked at once. URLs wait for another worker when too little time remains to start a check. Timeouts are retried up to the configured limit; URLs that remain inconclusive are shown for review. Hosting execution limits can shorten the effective request timeout. PHP does not reliably expose shared-host CPU quotas, so the plugin uses conservative concurrency limits rather than claiming to measure CPU availability. Manual scanning remains available when WordPress cron is delayed.
 
 ### Privacy
 
@@ -105,39 +105,9 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 
 == Changelog ==
 
-= 1.0.19 =
-* Read multiple small source batches per worker when no URLs are waiting, within the worker time limit.
-* Skip HTML parsing for content without supported link elements or plain HTTP URLs.
-
-= 1.0.18 =
-* Stop an incomplete scan when a discovered URL or its source location cannot be saved.
-
-= 1.0.17 =
-* Show elapsed scan time and stop with an incomplete report if repeated worker steps cannot advance.
-
-= 1.0.16 =
-* Align status filter counts with the selected link scope, type, and search, and add a clear-filters control.
-* Prioritize the selected internal or external URLs in the scan queue.
-* Save stopped scans in history as incomplete when scan history is enabled.
-* Bound the time spent waiting for the live findings request.
-
-= 1.0.15 =
-* Check discovered links as the scan continues to find more, and show progress for URLs found so far.
-
-= 1.0.14 =
-* Keep scans resumable when scheduled workers are delayed and show verification progress against a fixed URL total.
-* Prevent a new scan from clearing the current report if its history snapshot cannot be saved.
-* Report database errors instead of treating missing progress data as a completed scan.
-
-= 1.0.13 =
-* Added configurable retention for 5, 10, or 25 completed scans, with an option to turn history off.
-* Saved historical URL results and source locations locally, with read-only review from the new Scan history screen.
-* Added bounded, paginated history queries and automatic removal of the oldest saved results.
-
-= 1.0.12 =
-* Completed scans now mark URLs that reach the worker time limit for manual review instead of leaving the queue stuck.
-* The dashboard and optional email summary report URLs that timed out or were skipped.
-* Worker duration follows the PHP execution-time limit; batch size and parallel checks adjust to available PHP memory.
+= 1.0.20 =
+* Give URL checks more time within the available PHP worker limit and retry timeouts automatically before reporting them for review.
+* Improve scan progress, filtered findings, history, discovery and recovery on larger sites.
 
 = 1.0.11 =
 * Added WordPress Plugin Check and PHP syntax checks to GitHub Actions.
@@ -205,29 +175,8 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 
 == Upgrade Notice ==
 
-= 1.0.19 =
-Improves source discovery on sites with many posts containing no links.
-
-= 1.0.18 =
-Reports database failures during URL discovery instead of silently omitting findings.
-
-= 1.0.17 =
-Adds elapsed time and detects repeated worker steps that make no progress.
-
-= 1.0.16 =
-Status filter counts now reflect the selected link scope, type, and search.
-
-= 1.0.15 =
-Checks URLs during discovery and shows progress for URLs found so far.
-
-= 1.0.14 =
-Improves scan progress reporting and protects the previous report when history cannot be saved.
-
-= 1.0.13 =
-Completed scans can now be saved and reviewed later. Choose the number of completed runs to retain in Settings.
-
-= 1.0.12 =
-Scans now finish with timed-out URLs listed for manual review. Worker duration follows the site's PHP execution-time limit, while batch size and parallel checks adjust to available PHP memory.
+= 1.0.20 =
+Improves timeout handling and scan progress. Unreachable URLs remain unverified after the configured retries.
 
 = 1.0.11 =
 The admin scan monitor now makes fewer polling requests. The evidence drawer supports Escape and keeps keyboard focus inside while open.

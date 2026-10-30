@@ -150,7 +150,7 @@ final class Admin {
 					'The worker caps this at four and lowers it when PHP memory is tight.' => __( 'The worker caps this at four and lowers it when PHP memory is tight.', 'linksolva-broken-link-checker' ),
 					'Request timeout, seconds'            => __( 'Request timeout, seconds', 'linksolva-broken-link-checker' ),
 					'Maximum redirect hops'               => __( 'Maximum redirect hops', 'linksolva-broken-link-checker' ),
-					'Temporary failure retries'           => __( 'Temporary failure retries', 'linksolva-broken-link-checker' ),
+					'Timeout retries'           => __( 'Timeout retries', 'linksolva-broken-link-checker' ),
 					'Content sources'                     => __( 'Content sources', 'linksolva-broken-link-checker' ),
 					'Public post types'                   => __( 'Public post types', 'linksolva-broken-link-checker' ),
 					'Leave all unchecked to include every public post type except attachments and menu items.' => __( 'Leave all unchecked to include every public post type except attachments and menu items.', 'linksolva-broken-link-checker' ),

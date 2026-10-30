@@ -121,6 +121,7 @@ final class Scanner {
 		$before = self::work_key( $scan );
 		$limits   = Settings::worker_limits();
 		$deadline = microtime( true ) + $limits['execution_seconds'];
+		$verification_progress = false;
 		try {
 			$discovery_batches = 0;
 			while ( $scan && 'discovering' === $scan->state && $discovery_batches < self::DISCOVERY_BATCH_LIMIT && microtime( true ) < $deadline ) {
@@ -141,13 +142,13 @@ final class Scanner {
 			}
 			$scan = Database::get_scan( $scan_id );
 			if ( $scan && in_array( $scan->state, array( 'discovering', 'checking' ), true ) && microtime( true ) < $deadline ) {
-				self::check_resources( $scan, $deadline, $scope );
+				$verification_progress = self::check_resources( $scan, $deadline, $scope );
 			}
 			$scan = Database::get_scan( $scan_id );
 			$scan = self::reconcile_scan( $scan, true );
 			if ( $scan && in_array( $scan->state, array( 'discovering', 'checking' ), true ) ) {
 				$previous = get_option( self::NO_PROGRESS_OPTION, array() );
-				$unchanged = self::work_key( $scan ) === $before;
+				$unchanged = ! $verification_progress && self::work_key( $scan ) === $before;
 				$attempts = $unchanged && is_array( $previous ) && isset( $previous['scan_id'], $previous['attempts'] ) && absint( $previous['scan_id'] ) === absint( $scan_id ) ? absint( $previous['attempts'] ) + 1 : ( $unchanged ? 1 : 0 );
 				update_option( self::NO_PROGRESS_OPTION, array( 'scan_id' => absint( $scan_id ), 'attempts' => $attempts ), false );
 				if ( $attempts >= self::NO_PROGRESS_LIMIT ) {
@@ -405,11 +406,20 @@ final class Scanner {
 	 */
 	private static function check_resources( $scan, $deadline, $scope = 'all' ) {
 		$limits    = Settings::worker_limits();
+		$settings  = Settings::all();
+		$min_time  = min( absint( $settings['timeout'] ), max( 1, $limits['execution_seconds'] - 3 ) ) + 1;
+		if ( $deadline - microtime( true ) < $min_time ) {
+			return false;
+		}
 		$resources = Database::resources_for_scan( $scan->id, $limits['batch_size'], $scope );
+		if ( null === $resources ) {
+			throw new \RuntimeException( 'Could not read the URL queue.' );
+		}
 		$parallel  = $limits['parallel_requests'];
 		$chunks    = array_chunk( $resources, $parallel );
+		$progress  = false;
 		foreach ( $chunks as $chunk ) {
-			if ( microtime( true ) >= $deadline ) {
+			if ( $deadline - microtime( true ) < $min_time ) {
 				break;
 			}
 			$active  = array();
@@ -419,6 +429,7 @@ final class Scanner {
 					if ( ! Database::mark_checked( $resource->id, $scan->id ) ) {
 						throw new \RuntimeException( 'Could not record an ignored URL.' );
 					}
+					$progress = true;
 					continue;
 				}
 				$active[ $resource->id ] = $resource;
@@ -432,15 +443,22 @@ final class Scanner {
 				if ( ! empty( $result['deferred'] ) ) {
 					$result = Http_Checker::scan_time_limit_result( $resource->url, absint( $resource->retry_count ) );
 				}
-				if ( ! Database::save_result( $resource_id, $scan->id, $result ) ) {
+				$retry = in_array( $result['error_code'], array( 'timeout', 'scan_time_limit' ), true ) && absint( $resource->retry_count ) < absint( $settings['max_retries'] );
+				if ( $retry ) {
+					$result['retry_count'] = absint( $resource->retry_count ) + 1;
+					$result['next_check_at'] = null;
+				}
+				if ( ! Database::save_result( $resource_id, $scan->id, $result, ! $retry ) ) {
 					throw new \RuntimeException( 'Could not save a URL result.' );
 				}
+				$progress = true;
 			}
 		}
 		$stats = Database::scan_stats( $scan->id );
 		if ( $stats['checked_resources'] > absint( $scan->checked_resources ) ) {
 			Database::update_scan( $scan->id, array( 'checked_resources' => $stats['checked_resources'] ) );
 		}
+		return $progress;
 	}
 
 	/**

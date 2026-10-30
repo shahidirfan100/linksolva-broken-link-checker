@@ -328,7 +328,7 @@ msgid "Maximum redirect hops"
 msgstr ""
 
 #: admin/class-admin.php:121
-msgid "Temporary failure retries"
+msgid "Timeout retries"
 msgstr ""
 
 #: admin/class-admin.php:122
@@ -752,7 +752,7 @@ msgid "The domain could not be resolved from this server."
 msgstr ""
 
 #: includes/class-http-checker.php:554
-msgid "The server did not respond within the configured timeout."
+msgid "The server did not respond within the time available for this request."
 msgstr ""
 
 #: includes/class-http-checker.php:646

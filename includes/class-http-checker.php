@@ -583,7 +583,7 @@ final class Http_Checker {
 			$status      = 'timeout';
 			$category    = 'timeout';
 			$title       = __( 'Timeout', 'linksolva-broken-link-checker' );
-			$explanation = __( 'The server did not respond within the configured timeout.', 'linksolva-broken-link-checker' );
+			$explanation = __( 'The server did not respond within the time available for this request.', 'linksolva-broken-link-checker' );
 		}
 		return self::result( $status, 'unverified', 0, $url, $category, $title, $explanation, $redirects, $history, $duration, $stored_retry, $url, $redirect_count, $next );
 	}
