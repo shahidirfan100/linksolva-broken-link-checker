@@ -1,8 +1,9 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
+let page;
 (async () => {
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
+  page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('http://127.0.0.1:8080/wp-login.php');
@@ -36,4 +37,13 @@ const fs = require('fs');
   if (errors.length) throw new Error('Browser errors: ' + errors.join('; '));
   await browser.close();
   console.log('Screenshots captured; evidence, keyboard dismissal, mobile layout and browser errors checked.');
-})().catch(error => { console.error(error); process.exit(1); });
+})().catch(async error => {
+  console.error(error);
+  if (page) {
+    fs.mkdirSync('screenshots', { recursive: true });
+    console.error('Current page:', page.url());
+    console.error('Page text:', (await page.locator('body').innerText()).slice(0, 3000));
+    await page.screenshot({ path: 'screenshots/failure.png', fullPage: true });
+  }
+  process.exit(1);
+});
