@@ -128,6 +128,8 @@ jobs:
         run: php /tmp/wp.phar eval-file tests/benchmark-scan.php --path=/tmp/linksolva-wp
       - name: Measure sparse 30,000-job discovery
         run: php /tmp/wp.phar eval-file tests/benchmark-large-sparse.php --path=/tmp/linksolva-wp
+      - name: Check unlink, undo, and conflict protection
+        run: php /tmp/wp.phar eval-file tests/integration-repair.php --path=/tmp/linksolva-wp
       - name: Check duplicate sources and no-progress recovery
         run: php /tmp/wp.phar eval-file tests/integration-duplicate-scan.php --path=/tmp/linksolva-wp
       - name: Check discovery database failures
@@ -170,6 +172,8 @@ jobs:
           define( 'WP_DEBUG_DISPLAY', false );
           PHP
           php /tmp/wp.phar core install --path=/tmp/linksolva-ui-wp --url=http://127.0.0.1:8080 --title='LinkSolva Sample Site' --admin_user=admin --admin_password=test-password --admin_email=admin@example.com --skip-email
+          php /tmp/wp.phar option update siteurl http://127.0.0.1:8080 --path=/tmp/linksolva-ui-wp
+          php /tmp/wp.phar option update home http://127.0.0.1:8080 --path=/tmp/linksolva-ui-wp
           cp -R . /tmp/linksolva-ui-wp/wp-content/plugins/linksolva-broken-link-checker/
           php /tmp/wp.phar plugin activate linksolva-broken-link-checker --path=/tmp/linksolva-ui-wp
           php /tmp/wp.phar eval-file tests/screenshot-fixture.php --path=/tmp/linksolva-ui-wp
