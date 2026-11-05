@@ -37,6 +37,9 @@ jobs:
       - name: Run scan history retention regression check
         run: php tests/scan-history.php
 
+      - name: Run SSRF request-target regression checks
+        run: php tests/ssrf-guard.php
+
       - name: Check admin JavaScript syntax
         run: node --check assets/js/admin.js
 
@@ -128,6 +131,8 @@ jobs:
         run: php /tmp/wp.phar eval-file tests/benchmark-scan.php --path=/tmp/linksolva-wp
       - name: Measure sparse 30,000-job discovery
         run: php /tmp/wp.phar eval-file tests/benchmark-large-sparse.php --path=/tmp/linksolva-wp
+      - name: Measure extraction from long content
+        run: php /tmp/wp.phar eval-file tests/benchmark-extractor.php --path=/tmp/linksolva-wp
       - name: Check unlink, undo, and conflict protection
         run: php /tmp/wp.phar eval-file tests/integration-repair.php --path=/tmp/linksolva-wp
       - name: Check duplicate sources and no-progress recovery
