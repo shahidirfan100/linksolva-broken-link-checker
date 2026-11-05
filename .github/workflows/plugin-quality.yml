@@ -37,6 +37,9 @@ jobs:
       - name: Run scan history retention regression check
         run: php tests/scan-history.php
 
+      - name: Run SSRF request-target regression checks
+        run: php tests/ssrf-guard.php
+
       - name: Check admin JavaScript syntax
         run: node --check assets/js/admin.js
 

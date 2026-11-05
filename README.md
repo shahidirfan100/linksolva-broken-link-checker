@@ -6,7 +6,7 @@ The plugin does not require a cloud account, developer service, telemetry, adver
 
 ## Current version
 
-1.0.21
+1.0.22
 
 ## Scope
 

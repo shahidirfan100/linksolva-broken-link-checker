@@ -1,23 +1,38 @@
 # LinkSolva Broken Link Checker roadmap
 
-Updated 30 October 2026.
+Updated 5 November 2026.
 
 ## Product position
 
 LinkSolva's position is a local scanner with evidence and careful repairs. It should compete on dependable results, low hosting overhead, and clear controls; comparative performance claims require equivalent independent measurements.
 
-## Competitor observations (30 October 2026)
+## Competitor observations (5 November 2026)
 
 These are descriptions from the plugins' own directory pages, not independently verified benchmarks:
 
-- [Broken Link Checker by WPMU DEV](https://wordpress.org/plugins/broken-link-checker/) offers local and cloud engines; its [support guidance](https://wordpress.org/support/topic/blc-plugin-causing-daily-downtime/) recommends lowering the local resource target and load limit when scans cause trouble. The directory reports 500,000+ active installations.
-- [Broken Link Checker by AIOSEO](https://wordpress.org/plugins/broken-link-checker-seo/) moves scanning to its cloud service, trading a separate account and service limits for less on-site scan work. The directory reports 200,000+ active installations.
+- [Broken Link Checker by WPMU DEV](https://wordpress.org/plugins/broken-link-checker/) offers local and cloud engines. Its [documentation](https://wpmudev.com/docs/wpmu-dev-plugins/broken-link-checker/) says the cloud engine uses a WPMU DEV Hub connection and shows reports in the Hub; the local engine remains available in wp-admin.
+- [Broken Link Checker by AIOSEO](https://wordpress.org/plugins/broken-link-checker-seo/) runs checks in its cloud service and requires an AIOSEO account; its free plan scans up to 250 internal links each month. The listing describes video checks, broad WordPress source coverage, scheduled checks, inline repair, and service integrations.
+- [LinkRevive AI](https://wordpress.org/plugins/linkrevive-ai/) keeps routine checks on the site, marks inconclusive results unverified, repeats failed checks, and offers soft-404 review, plain-language triage, optional email, and on-demand Wayback/AI suggestions. Its listing says optional suggestions can send link context to services after an administrator action.
+- [Linkmender](https://wordpress.org/plugins/linkmender/) checks links locally, uses spaced retries, supports row and bulk repair, and includes an orphan-page report. Its listing says it does not scan navigation menus or theme templates, which can make menu-linked pages appear orphaned.
 - [Awlware Link Checker](https://wordpress.org/plugins/awlware-link-checker/) describes short worker slices, local resolution for eligible internal links, paced per-host requests, connection address pinning, and WP-CLI. It is a useful design reference, not a comparably established competitor; its directory lists fewer than 10 active installations.
 - [Link Invader](https://wordpress.org/plugins/link-invader/) describes bounded work, per-host throttling, local internal-link resolution and a WP-CLI runner. Evaluate each technique against LinkSolva's own correctness and resource measurements.
 
-## Current candidate: 1.0.21
+## Differentiation to prioritize
+
+- Keep the local-only data path and evidence trail explicit. LinkSolva can stand apart from cloud-first tools without requiring an account, while its status model avoids calling blocked, temporary, rate-limited, or inconclusive results broken.
+- Keep every repair reversible and source-aware. Retain the complete before/after record and conflict check, and make read-only sources visibly non-editable.
+- Add a soft-404 suspicion signal only as a separate review state. Never promote a guessed page-content result to confirmed broken without HTTP evidence.
+- Add `Retry-After` support and host-aware pacing before adding broader automatic monitoring. This addresses remote rate limits while keeping the worker queue bounded.
+- Expand read-only source adapters for common block and builder data, then add video-link checks with platform-specific evidence. Prioritize based on support demand and test each adapter against safe repair boundaries.
+- Consider WP-CLI scan and status commands for agency workflows after the interrupted-scan and history-retention work is complete.
+- Treat orphan detection as a later, clearly scoped tool. Account for menu, template, and builder sources before presenting a page as orphaned.
+
+Competitor notes summarize the vendors' current plugin pages and documentation. They are not independent tests or performance comparisons.
+
+## Current candidate: 1.0.22
 
 - Current changes give a fresh worker more time for a request, bound retries, load dashboard data concurrently, count source locations for the visible page, and show evidence and repair progress. Expired REST nonces can be refreshed for signed-in administrators; an expired login still requires signing in.
+- Bracketed IPv6 literals are normalized before request-safety classification; the guard now reports blocked IPv6 destinations as blocked addresses instead of DNS failures.
 - GitHub tests cover WordPress Plugin Check, PHP compatibility, a 2,000-URL synthetic fixture, browser evidence and unlink flows, permission handling, and conflict-aware undo. The synthetic 2,000-URL scan does not send network requests. Results are not measurements of customer hosting or competitor performance.
 - The browser workflow captures real plugin screens with labelled sample findings and performs a five-URL HTTP scan against a local fixture: healthy, 404, redirect, two-second response and HEAD-to-GET fallback. On the 30 October GitHub runner, one run took 2.16 seconds; PHP web-server processes peaked at 375.7 MiB summed RSS and 10% summed `ps` lifetime-average CPU. This includes the server and workers, double-counts shared memory, and is not a per-request or shared-host benchmark. Expand the workload and record idle baselines before drawing performance conclusions.
 - Do not treat unverified URLs as healthy or confirmed broken, or replace site-level HTTP evidence with a database lookup unless the meaning and limitations of the local result are clear.

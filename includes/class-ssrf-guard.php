@@ -59,7 +59,7 @@ final class Ssrf_Guard {
 			);
 		}
 		$scheme = strtolower( $parts['scheme'] );
-		$host   = strtolower( trim( $parts['host'], '.' ) );
+		$host   = strtolower( trim( trim( $parts['host'], '[]' ), '.' ) );
 		$port   = isset( $parts['port'] ) ? absint( $parts['port'] ) : 0;
 
 		if ( ! in_array( $scheme, array( 'http', 'https' ), true ) || isset( $parts['user'] ) || isset( $parts['pass'] ) ) {
@@ -70,7 +70,7 @@ final class Ssrf_Guard {
 			);
 		}
 		$home_parts = wp_parse_url( home_url( '/' ) );
-		$home_host  = ! empty( $home_parts['host'] ) ? strtolower( trim( $home_parts['host'], '.' ) ) : '';
+		$home_host  = ! empty( $home_parts['host'] ) ? strtolower( trim( trim( $home_parts['host'], '[]' ), '.' ) ) : '';
 		$is_home    = $home_host && $host === $home_host;
 
 		if ( $port && ! in_array( $port, array( 80, 443 ), true ) && ! $is_home ) {
