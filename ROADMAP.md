@@ -29,7 +29,7 @@ These are descriptions from the plugins' own directory pages, not independently 
 
 Competitor notes summarize the vendors' current plugin pages and documentation. They are not independent tests or performance comparisons.
 
-## Current candidate: 1.0.22
+## Prior release: 1.0.22
 
 - Current changes give a fresh worker more time for a request, bound retries, load dashboard data concurrently, count source locations for the visible page, and show evidence and repair progress. Expired REST nonces can be refreshed for signed-in administrators; an expired login still requires signing in.
 - Bracketed IPv6 literals are normalized before request-safety classification; the guard now reports blocked IPv6 destinations as blocked addresses instead of DNS failures.
@@ -94,8 +94,8 @@ This audit was source review plus safe, static reasoning. It did not execute plu
 
 #### 1.0.23 — close review findings and establish a baseline
 
-- Merge the extraction and exact-authority fixes with their regression coverage.
-- Run the 1,000-link extraction fixture, 2,000-URL full scan, 30,000-source sparse scan, and existing Plugin Check / browser workflows on the PR branch. Save elapsed time, peak memory, query count, and request count as CI artifacts or logs.
+- Implemented in PR #6: reuse plain text/context during extraction, restrict the configured-site SSRF exception to its exact authority, add regression coverage, and bump release metadata.
+- GitHub Actions run on 5 November 2026 passed PHP 7.4/8.4 checks, Plugin Check, WordPress integration, browser checks, and all existing regressions. On the hosted Ubuntu 26.04 / PHP 8.2.35 / MySQL 8.0.46 runner: 1,000 links in a 162,897-byte article extracted in 0.065 s; the 2,000-URL scan took 9.76 s with 12,740 DB queries and 55.3 MiB peak memory; the 30,000-source sparse scan took 60.42 s with 44,388 queries and 53.3 MiB peak memory. Synthetic scan fixtures rejected all network requests. These are repeatable CI baselines, not a before/after comparison or customer-host performance claim.
 - Add a dense repeated-link fixture and a large-result dashboard fixture. Compare baseline and candidate on the same runner and PHP/WordPress versions; avoid fixed timing assertions that are flaky across hosts.
 - Keep the DNS pinning question open until every supported request transport, redirect hop, and configured proxy path is verified in a contained fixture.
 
