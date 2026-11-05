@@ -55,10 +55,36 @@ foreach ( $cases as $label => $case ) {
 }
 
 $GLOBALS['sblc_home_url'] = 'https://127.0.0.1';
-$site_target              = Ssrf_Guard::validate( 'https://127.0.0.1:8080/' );
+$site_target              = Ssrf_Guard::validate( 'https://127.0.0.1/' );
 if ( empty( $site_target['safe'] ) || '' !== $site_target['code'] ) {
 	fwrite( STDERR, "Configured site address should remain available for local checks.\n" );
 	exit( 1 );
 }
+$other_site_port = Ssrf_Guard::validate( 'https://127.0.0.1:8080/' );
+if ( ! empty( $other_site_port['safe'] ) || 'blocked_port' !== $other_site_port['code'] ) {
+	fwrite( STDERR, "An alternate port on the configured site host must be blocked.\n" );
+	exit( 1 );
+}
+$explicit_default_port = Ssrf_Guard::validate( 'https://127.0.0.1:443/' );
+if ( empty( $explicit_default_port['safe'] ) || '' !== $explicit_default_port['code'] ) {
+	fwrite( STDERR, "An explicit default port should match the configured site authority.\n" );
+	exit( 1 );
+}
+$other_scheme = Ssrf_Guard::validate( 'http://127.0.0.1/' );
+if ( ! empty( $other_scheme['safe'] ) || 'blocked_address' !== $other_scheme['code'] ) {
+	fwrite( STDERR, "A different scheme must not inherit the configured site's private-address exception.\n" );
+	exit( 1 );
+}
+$GLOBALS['sblc_home_url'] = 'https://127.0.0.1:8443';
+$configured_site_port    = Ssrf_Guard::validate( 'https://127.0.0.1:8443/' );
+if ( empty( $configured_site_port['safe'] ) || '' !== $configured_site_port['code'] ) {
+	fwrite( STDERR, "The configured site authority should remain available for local checks.\n" );
+	exit( 1 );
+}
+$other_configured_port = Ssrf_Guard::validate( 'https://127.0.0.1:8444/' );
+if ( ! empty( $other_configured_port['safe'] ) || 'blocked_port' !== $other_configured_port['code'] ) {
+	fwrite( STDERR, "Only the configured site port may bypass the nonstandard-port block.\n" );
+	exit( 1 );
+}
 
-echo sprintf( "SSRF guard regression checks passed (%d cases).\n", count( $cases ) + 1 );
+echo sprintf( "SSRF guard regression checks passed (%d cases).\n", count( $cases ) + 6 );

@@ -4,7 +4,7 @@ Tags: broken links, link checker, broken images, redirects, local scanner
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.22
+Stable tag: 1.0.23
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -105,6 +105,11 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 
 == Changelog ==
 
+= 1.0.23 =
+* Avoid repeating full-content text processing for every discovered URL.
+* Restrict the configured-site SSRF exception to its exact scheme and effective port.
+* Add long-content extraction and same-site alternate-port regression coverage.
+
 = 1.0.22 =
 * Correct the safety classification of bracketed IPv6 addresses, including loopback, private, link-local, multicast, and IPv4-mapped addresses.
 * Add focused SSRF guard regression checks to GitHub Actions.
@@ -180,6 +185,9 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * Added evidence-based HTTP classifications, URL deduplication, bounded scanning, safe repairs, and conflict-aware undo.
 
 == Upgrade Notice ==
+
+= 1.0.23 =
+Reduces repeated processing of long post content and restricts same-site checks to the configured port.
 
 = 1.0.22 =
 Corrects how bracketed IPv6 targets are identified by the local request safety checks.

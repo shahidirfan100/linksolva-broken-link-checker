@@ -71,7 +71,11 @@ final class Ssrf_Guard {
 		}
 		$home_parts = wp_parse_url( home_url( '/' ) );
 		$home_host  = ! empty( $home_parts['host'] ) ? strtolower( trim( trim( $home_parts['host'], '[]' ), '.' ) ) : '';
-		$is_home    = $home_host && $host === $home_host;
+		$home_scheme = ! empty( $home_parts['scheme'] ) ? strtolower( $home_parts['scheme'] ) : '';
+		$home_port   = isset( $home_parts['port'] ) ? absint( $home_parts['port'] ) : 0;
+		$port        = $port ? $port : self::default_port( $scheme );
+		$home_port   = $home_port ? $home_port : self::default_port( $home_scheme );
+		$is_home     = $home_host && $host === $home_host && $scheme === $home_scheme && $port === $home_port;
 
 		if ( $port && ! in_array( $port, array( 80, 443 ), true ) && ! $is_home ) {
 			return array(
@@ -178,6 +182,16 @@ final class Ssrf_Guard {
 			}
 		}
 		return array_values( array_unique( $addresses ) );
+	}
+
+	/**
+	 * Return the default port for a supported scheme.
+	 *
+	 * @param string $scheme URL scheme.
+	 * @return int
+	 */
+	private static function default_port( $scheme ) {
+		return 'https' === $scheme ? 443 : ( 'http' === $scheme ? 80 : 0 );
 	}
 
 	/**

@@ -31,6 +31,8 @@ final class Extractor {
 		if ( ! preg_match( '~https?://|<\s*(?:a|img|source|video|audio)\b~i', $content ) ) {
 			return $found;
 		}
+		$plain          = wp_strip_all_tags( $content );
+		$source_context = ! empty( $source['content'] ) ? self::compact_context( $plain ) : null;
 
 		if ( class_exists( 'DOMDocument' ) && self::looks_like_html( $content ) ) {
 			$previous = libxml_use_internal_errors( true );
@@ -52,7 +54,7 @@ final class Extractor {
 					foreach ( $attributes as $attribute ) {
 						if ( $node->hasAttribute( $attribute ) ) {
 							// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- textContent is the native DOMNode API property.
-							self::add( $found, $node->getAttribute( $attribute ), $base, $source, $type, $node->textContent, $tag . '[' . $attribute . ']' );
+							self::add( $found, $node->getAttribute( $attribute ), $base, $source, $type, $node->textContent, $tag . '[' . $attribute . ']', $source_context );
 						}
 					}
 					if ( 'image' === $type ) {
@@ -64,7 +66,7 @@ final class Extractor {
 							foreach ( $srcset as $candidate ) {
 								$parts = preg_split( '/\s+/', trim( $candidate ) );
 								if ( ! empty( $parts[0] ) ) {
-									self::add( $found, $parts[0], $base, $source, 'image', '', $tag . '[' . $srcset_attribute . ']' );
+									self::add( $found, $parts[0], $base, $source, 'image', '', $tag . '[' . $srcset_attribute . ']', $source_context );
 								}
 							}
 						}
@@ -73,11 +75,10 @@ final class Extractor {
 			}
 		}
 
-		$plain = wp_strip_all_tags( $content );
 		if ( preg_match_all( '~https?://[^\s<>"\'()]+~iu', $plain, $matches ) ) {
 			foreach ( $matches[0] as $url ) {
 				$url = rtrim( $url, '.,;:!?]' );
-				self::add( $found, $url, $base, $source, 'link', $url, 'text' );
+				self::add( $found, $url, $base, $source, 'link', $url, 'text', $source_context );
 			}
 		}
 		return $found;
@@ -95,7 +96,7 @@ final class Extractor {
 	 * @param string $location Location.
 	 * @return void
 	 */
-	private static function add( &$found, $raw, $base, $source, $type, $anchor, $location ) {
+	private static function add( &$found, $raw, $base, $source, $type, $anchor, $location, $source_context = null ) {
 		$normalized = Url::normalize( $raw, $base );
 		if ( ! $normalized || self::excluded( $normalized ) ) {
 			return;
@@ -106,7 +107,7 @@ final class Extractor {
 			'resource_type' => ! empty( $source['force_type'] ) ? $source['force_type'] : $type,
 			'anchor_text'   => wp_strip_all_tags( (string) $anchor ),
 			'location'      => $location,
-			'context'       => self::context( $source, $anchor, $normalized ),
+			'context'       => ( null === $source_context ? self::context_text( $anchor ) : $source_context ) ?: $normalized,
 		);
 	}
 
@@ -139,18 +140,26 @@ final class Extractor {
 	/**
 	 * Build a compact context string.
 	 *
-	 * @param array  $source Source.
-	 * @param string $anchor Anchor.
-	 * @param string $url URL.
+	 * @param string $content Content to reduce to plain text.
 	 * @return string
 	 */
-	private static function context( $source, $anchor, $url ) {
-		$context = ! empty( $source['content'] ) ? wp_strip_all_tags( $source['content'] ) : $anchor;
+	private static function context_text( $content ) {
+		return self::compact_context( wp_strip_all_tags( (string) $content ) );
+	}
+
+	/**
+	 * Normalize and truncate text for stored context.
+	 *
+	 * @param string $content Plain text content.
+	 * @return string
+	 */
+	private static function compact_context( $content ) {
+		$context = (string) $content;
 		$context = preg_replace( '/\s+/', ' ', trim( $context ) );
 		if ( strlen( $context ) > 180 ) {
 			$context = substr( $context, 0, 177 ) . '...';
 		}
-		return $context ? $context : $url;
+		return $context;
 	}
 
 	/**
