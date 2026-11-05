@@ -138,7 +138,7 @@ final class Database {
 	public static function add_occurrence( $data ) {
 		global $wpdb;
 		$tables = self::tables();
-		$hash   = hash( 'sha256', wp_json_encode( array( $data['resource_id'], $data['scan_id'], $data['source_type'], $data['source_id'], $data['source_field'], $data['raw_url'], $data['location'], absint( $data['occurrence_index'] ) ) ) );
+		$hash   = hash( 'sha256', wp_json_encode( array( absint( $data['resource_id'] ), absint( $data['scan_id'] ), $data['source_type'], absint( $data['source_id'] ), $data['source_field'], $data['raw_url'], $data['location'], absint( $data['occurrence_index'] ) ) ) );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct, uncached access.
 		$found = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM %i WHERE occurrence_hash = %s LIMIT 1', $tables['occurrences'], $hash ) );
 		if ( ! empty( $wpdb->last_error ) ) {
@@ -163,10 +163,11 @@ final class Database {
 				'context'         => sanitize_textarea_field( $data['context'] ),
 				'raw_url'         => sanitize_text_field( $data['raw_url'] ),
 				'location'        => sanitize_text_field( $data['location'] ),
+				'source_checksum' => isset( $data['source_checksum'] ) ? $data['source_checksum'] : '',
 				'editable'        => ! empty( $data['editable'] ) ? 1 : 0,
 				'occurrence_hash' => $hash,
 			),
-			array( '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
+			array( '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
 		);
 		return false === $inserted ? false : (int) $wpdb->insert_id;
 	}

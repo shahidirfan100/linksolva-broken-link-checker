@@ -55,7 +55,7 @@ final class Http_Checker {
 		}
 
 		/* Requests::request_multiple() is available in the supported WP 6.2+ range. */
-		if ( ! class_exists( '\\WpOrg\\Requests\\Requests' ) || ! class_exists( '\\WP_HTTP_Requests_Hooks' ) ) {
+		if ( ! self::has_pinned_transport() ) {
 			$results = array();
 			foreach ( $entries as $key => $entry ) {
 				$result = self::check_with_initial( $entry['url'], $entry['retry'], null, $deadline );
@@ -93,6 +93,16 @@ final class Http_Checker {
 				$results[ $key ] = self::scan_time_limit_result( $entry['url'], $entry['retry'] );
 				continue;
 			}
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core WordPress HTTP short-circuit filter.
+			$preempt = apply_filters( 'pre_http_request', false, $args, $entry['url'] );
+			if ( false !== $preempt ) {
+				$results[ $key ] = self::check_with_initial( $entry['url'], $entry['retry'], self::preempted_response( $preempt ), $deadline, $safety );
+				continue;
+			}
+			if ( self::uses_proxy( $entry['url'] ) || self::wordpress_blocks( $entry['url'] ) ) {
+				$results[ $key ] = self::parallel_failure( $entry['url'], $entry['retry'], 0, __( 'The request was blocked by the site network configuration.', 'linksolva-broken-link-checker' ), $settings );
+				continue;
+			}
 			$starts[ $key ]   = $batch_started;
 			$safeties[ $key ] = $safety;
 			$requests[ $key ] = array(
@@ -100,7 +110,7 @@ final class Http_Checker {
 				'headers' => $args['headers'],
 				'data'    => '',
 				'type'    => 'HEAD',
-				'options' => self::requests_options( $entry['url'], $args, $complete ),
+				'options' => self::requests_options( $entry['url'], $args, $complete, $safety ),
 			);
 		}
 
@@ -109,7 +119,7 @@ final class Http_Checker {
 		}
 
 		try {
-			$responses = \WpOrg\Requests\Requests::request_multiple( $requests );
+			$responses = \WpOrg\Requests\Requests::request_multiple( $requests, array( 'transport' => '\\WpOrg\\Requests\\Transport\\Curl' ) );
 		} catch ( \Throwable $error ) {
 			/* Do not repeat the same stalled network work in a sequential fallback. */
 			foreach ( $requests as $key => $request ) {
@@ -199,6 +209,7 @@ final class Http_Checker {
 		$redirects      = array();
 		$visited        = array( Url::hash( $url ) => true );
 		$current        = $url;
+		$current_safety = $safety;
 		$total_time     = 0.0;
 		$redirect_count = 0;
 		$max_redirects  = absint( $settings['max_redirects'] );
@@ -209,7 +220,7 @@ final class Http_Checker {
 			if ( $first_request && is_array( $initial_response ) ) {
 				$head = $initial_response;
 			} else {
-				$head = self::request( $current, 'HEAD', $settings, $deadline );
+				$head = self::request( $current, 'HEAD', $settings, $deadline, $current_safety );
 				if ( ! empty( $head['deferred'] ) ) {
 					return self::scan_time_limit_result( $url, $retry_count );
 				}
@@ -230,7 +241,7 @@ final class Http_Checker {
 				( $head['code'] >= 500 && $head['code'] <= 599 )
 			);
 			if ( $head_needs_get ) {
-				$get = self::request( $current, 'GET', $settings, $deadline );
+				$get = self::request( $current, 'GET', $settings, $deadline, $current_safety );
 				if ( ! empty( $get['deferred'] ) ) {
 					if ( in_array( (int) $head['code'], array( 405, 406 ), true ) ) {
 						return self::result( 'unverified', 'unverified', $head['code'], $url, 'verification_deferred', __( 'Verification deferred', 'linksolva-broken-link-checker' ), __( 'The HEAD request did not establish the link status, and the worker time limit was reached before a GET request could confirm it.', 'linksolva-broken-link-checker' ), $redirects, $history, $total_time, $retry_count, $current, $redirect_count, time() + 120 );
@@ -278,6 +289,7 @@ final class Http_Checker {
 			}
 			$visited[ $next_hash ] = true;
 			$current               = $next;
+			$current_safety        = $next_safety;
 			++$redirect_count;
 		}
 
@@ -324,38 +336,34 @@ final class Http_Checker {
 	 * @param array  $settings Settings.
 	 * @return array
 	 */
-	private static function request( $url, $method, $settings, $deadline = 0.0 ) {
+	private static function request( $url, $method, $settings, $deadline = 0.0, $safety = null ) {
 		$start = microtime( true );
 		$args  = self::request_args( $url, $method, $settings, $deadline );
 		if ( $deadline > 0 && $args['timeout'] < 1 ) {
 			return array( 'deferred' => true );
 		}
-		$home = wp_parse_url( home_url( '/' ), PHP_URL_HOST );
-		$host = wp_parse_url( $url, PHP_URL_HOST );
-		if ( $home && $host && strtolower( $home ) === strtolower( $host ) ) {
-			$response = wp_remote_request( $url, $args );
-		} else {
-			$response = wp_safe_remote_request( $url, $args );
+		$safety = is_array( $safety ) ? $safety : Ssrf_Guard::validate( $url );
+		if ( empty( $safety['safe'] ) ) {
+			return array( 'response' => array(), 'code' => 0, 'message' => __( 'The request could not be safely pinned to a validated address.', 'linksolva-broken-link-checker' ), 'error' => true, 'error_code' => 'unsafe_transport', 'duration' => microtime( true ) - $start );
 		}
-		$duration = microtime( true ) - $start;
-		if ( is_wp_error( $response ) ) {
-			return array(
-				'response'   => array(),
-				'code'       => 0,
-				'message'    => self::safe_error_message( $response ),
-				'error'      => true,
-				'error_code' => self::error_code( $response ),
-				'duration'   => $duration,
-			);
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core WordPress HTTP short-circuit filter.
+		$preempt = apply_filters( 'pre_http_request', false, $args, $url );
+		if ( false !== $preempt ) {
+			$preempted = self::preempted_response( $preempt );
+			$preempted['duration'] = microtime( true ) - $start;
+			return $preempted;
 		}
-		return array(
-			'response'   => $response,
-			'code'       => (int) wp_remote_retrieve_response_code( $response ),
-			'message'    => sanitize_text_field( wp_remote_retrieve_response_message( $response ) ),
-			'error'      => false,
-			'error_code' => '',
-			'duration'   => $duration,
-		);
+		if ( ! self::has_pinned_transport() || self::uses_proxy( $url ) || self::wordpress_blocks( $url ) ) {
+			return array( 'response' => array(), 'code' => 0, 'message' => __( 'The request could not be safely pinned to a validated address.', 'linksolva-broken-link-checker' ), 'error' => true, 'error_code' => 'unsafe_transport', 'duration' => microtime( true ) - $start );
+		}
+		try {
+			$options = self::requests_options( $url, $args, null, $safety );
+			$options['transport'] = '\\WpOrg\\Requests\\Transport\\Curl';
+			$response = \WpOrg\Requests\Requests::request( $url, $args['headers'], '', $method, $options );
+			return self::parallel_response( $response, microtime( true ) - $start );
+		} catch ( \Throwable $error ) {
+			return self::parallel_response( $error, microtime( true ) - $start );
+		}
 	}
 
 	/**
@@ -438,7 +446,7 @@ final class Http_Checker {
 	 * @param callable $complete Completion callback.
 	 * @return array
 	 */
-	private static function requests_options( $url, $args, $complete ) {
+	private static function requests_options( $url, $args, $complete, $safety ) {
 		$options = array(
 			'timeout'          => (float) $args['timeout'],
 			'connect_timeout'  => (float) $args['connect_timeout'],
@@ -454,16 +462,87 @@ final class Http_Checker {
 		);
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core WordPress SSL verification filter.
 		$options['verify'] = apply_filters( 'https_ssl_verify', $options['verify'], $url );
-		$proxy             = new \WP_HTTP_Proxy();
-		if ( $proxy->is_enabled() && $proxy->send_through_proxy( $url ) ) {
-			$options['proxy'] = new \WpOrg\Requests\Proxy\Http( $proxy->host() . ':' . $proxy->port() );
-			if ( $proxy->use_authentication() ) {
-				$options['proxy']->use_authentication = true;
-				$options['proxy']->user               = $proxy->username();
-				$options['proxy']->pass               = $proxy->password();
+		$parts = wp_parse_url( $url );
+		$host = trim( $parts['host'], '[]' );
+		$port = isset( $parts['port'] ) ? absint( $parts['port'] ) : ( 'https' === strtolower( $parts['scheme'] ) ? 443 : 80 );
+		$address = $safety['addresses'][0];
+		$pin = static function ( $handle ) use ( $host, $port, $address ) {
+			// Ignore environment proxy settings: a proxy would resolve the host itself.
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- WordPress HTTP does not expose destination pinning.
+			if ( ! curl_setopt( $handle, CURLOPT_PROXY, '' ) ) {
+				throw new \RuntimeException( 'Unable to disable the HTTP proxy.' );
+			}
+			if ( ! filter_var( $host, FILTER_VALIDATE_IP ) ) {
+				$ip = false !== strpos( $address, ':' ) ? '[' . $address . ']' : $address;
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- Prevent DNS rebinding while retaining the original TLS hostname.
+				if ( ! curl_setopt( $handle, CURLOPT_RESOLVE, array( $host . ':' . $port . ':' . $ip ) ) ) {
+					throw new \RuntimeException( 'Unable to pin the validated destination.' );
+				}
+			}
+		};
+		$options['hooks']->register( 'curl.before_send', $pin );
+		$options['hooks']->register( 'curl.before_multi_add', $pin );
+		return $options;
+	}
+
+	/** Require a transport that can bind DNS validation to the connection. */
+	private static function has_pinned_transport() {
+		return function_exists( 'curl_init' ) && defined( 'CURLOPT_RESOLVE' ) && class_exists( '\\WpOrg\\Requests\\Requests' ) && class_exists( '\\WpOrg\\Requests\\Transport\\Curl' ) && class_exists( '\\WP_HTTP_Requests_Hooks' );
+	}
+
+	/** WordPress proxies resolve the host remotely, so they cannot use our pin. */
+	private static function uses_proxy( $url ) {
+		$proxy = new \WP_HTTP_Proxy();
+		return ( $proxy->is_enabled() && $proxy->send_through_proxy( $url ) ) || self::environment_proxy_configured( $url );
+	}
+
+	/** Honor WordPress's outbound network policy when using Requests directly. */
+	private static function wordpress_blocks( $url ) {
+		return class_exists( '\\WP_Http' ) && ( new \WP_Http() )->block_request( $url );
+	}
+
+	/** Refuse requests when an environment proxy would bypass destination pinning. */
+	private static function environment_proxy_configured( $url ) {
+		$scheme = strtolower( (string) wp_parse_url( $url, PHP_URL_SCHEME ) );
+		foreach ( array( $scheme . '_proxy', strtoupper( $scheme ) . '_PROXY', 'all_proxy', 'ALL_PROXY' ) as $variable ) {
+			$value = getenv( $variable );
+			if ( false !== $value && '' !== trim( $value ) ) {
+				return true;
 			}
 		}
-		return $options;
+		return false;
+	}
+
+	/** Convert a WordPress preempted HTTP result into the checker response shape. */
+	private static function preempted_response( $preempt ) {
+		if ( is_wp_error( $preempt ) ) {
+			return array(
+				'response'   => array(),
+				'code'       => 0,
+				'message'    => self::safe_error_message( $preempt ),
+				'error'      => true,
+				'error_code' => self::error_code( $preempt ),
+				'duration'   => 0.0,
+			);
+		}
+		if ( is_array( $preempt ) ) {
+			return array(
+				'response'   => $preempt,
+				'code'       => (int) wp_remote_retrieve_response_code( $preempt ),
+				'message'    => sanitize_text_field( wp_remote_retrieve_response_message( $preempt ) ),
+				'error'      => false,
+				'error_code' => '',
+				'duration'   => 0.0,
+			);
+		}
+		return array(
+			'response'   => array(),
+			'code'       => 0,
+			'message'    => __( 'The HTTP request was stopped by a site policy.', 'linksolva-broken-link-checker' ),
+			'error'      => true,
+			'error_code' => 'http_request_blocked',
+			'duration'   => 0.0,
+		);
 	}
 
 	/**

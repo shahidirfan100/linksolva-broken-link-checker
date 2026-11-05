@@ -64,6 +64,10 @@ final class Sources {
 	 */
 	public static function store_source( $source, $scan_id ) {
 		$candidates = Extractor::extract( $source['content'], $source['source_url'], $source );
+		if ( empty( $candidates ) ) {
+			return 0;
+		}
+		$checksum   = hash( 'sha256', $source['content'] );
 		$count      = 0;
 		foreach ( $candidates as $candidate_index => $candidate ) {
 			$resource_id = Database::upsert_resource( $candidate['url'], $candidate['resource_type'], $scan_id );
@@ -83,6 +87,7 @@ final class Sources {
 					'context'          => $candidate['context'],
 					'raw_url'          => $candidate['raw_url'],
 					'location'         => $candidate['location'],
+					'source_checksum'  => $checksum,
 					'occurrence_index' => absint( $candidate_index ),
 					'editable'         => ! empty( $source['editable'] ),
 				)
@@ -286,32 +291,35 @@ final class Sources {
 			)
 		);
 		$items = array();
-		$allow = array_filter( array_map( 'sanitize_key', (array) Settings::get( 'custom_meta_keys', array() ) ) );
-		foreach ( $ids as $id ) {
-			$all_meta = get_post_meta( $id );
-			foreach ( $all_meta as $key => $values ) {
-				if ( ! empty( $allow ) && ! in_array( $key, $allow, true ) ) {
-					continue;
-				}
-				foreach ( (array) $values as $value ) {
-					if ( ! is_string( $value ) || strlen( $value ) > 500000 ) {
-						continue;
-					}
-					$items[] = array(
-						'source_type'  => 'post_meta',
-						'source_id'    => (int) $id,
-						'source_field' => $key,
-						'source_title' => get_the_title( $id ),
-						'source_url'   => get_permalink( $id ),
-						'content'      => $value,
-						'editable'     => false,
-					);
-				}
-			}
+		$allow = array_values( array_filter( array_map( 'sanitize_key', (array) Settings::get( 'custom_meta_keys', array() ) ) ) );
+		if ( empty( $ids ) ) {
+			return array( 'items' => array(), 'page_complete' => true, 'has_more' => false );
 		}
-		$all_count     = count( $items );
-		$items         = array_slice( $items, absint( $offset ), absint( $limit ) );
-		$page_complete = absint( $offset ) + count( $items ) >= $all_count;
+		global $wpdb;
+		$id_placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$key_clause = $allow ? ' AND meta_key IN (' . implode( ',', array_fill( 0, count( $allow ), '%s' ) ) . ')' : '';
+		$args = array_merge( array_map( 'absint', $ids ), $allow, array( absint( $offset ), absint( $limit ) + 1 ) );
+		// Fetch only the requested slice; a post may have thousands of metadata values.
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- The generated placeholders match the prepared argument array.
+		$query = $wpdb->prepare( "SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ($id_placeholders) AND OCTET_LENGTH(meta_value) <= 500000 $key_clause AND meta_id > %d ORDER BY meta_id LIMIT %d", $args );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- The query is prepared above.
+		$rows = $wpdb->get_results( $query );
+		if ( ! empty( $wpdb->last_error ) ) {
+			throw new \RuntimeException( 'Could not read post metadata.' );
+		}
+		$page_complete = count( $rows ) <= absint( $limit );
+		foreach ( array_slice( $rows, 0, absint( $limit ) ) as $row ) {
+			$items[] = array(
+				'cursor'       => absint( $row->meta_id ),
+				'source_type'  => 'post_meta',
+				'source_id'    => (int) $row->post_id,
+				'source_field' => $row->meta_key,
+				'source_title' => get_the_title( $row->post_id ),
+				'source_url'   => get_permalink( $row->post_id ),
+				'content'      => $row->meta_value,
+				'editable'     => false,
+			);
+		}
 		return array(
 			'items'         => $items,
 			'page_complete' => $page_complete,

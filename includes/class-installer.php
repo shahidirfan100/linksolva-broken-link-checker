@@ -13,7 +13,7 @@ defined( 'ABSPATH' ) || exit;
  * Creates schema and manages activation and deactivation state.
  */
 final class Installer {
-	const DB_VERSION = '1.1.2';
+	const DB_VERSION = '1.1.3';
 
 	/**
 	 * Activate the plugin.
@@ -21,7 +21,9 @@ final class Installer {
 	 * @return void
 	 */
 	public static function activate() {
+		$previous_version = get_option( 'sblc_db_version', '0' );
 		self::create_tables();
+		self::migrate_scan_cursors( $previous_version );
 		add_option( Settings::OPTION, Settings::defaults(), '', false );
 		update_option( 'sblc_db_version', self::DB_VERSION, false );
 		if ( ! wp_next_scheduled( 'sblc_worker' ) ) {
@@ -64,8 +66,10 @@ final class Installer {
 	 */
 	public static function maybe_upgrade() {
 		if ( self::DB_VERSION !== get_option( 'sblc_db_version' ) ) {
+			$previous_version = get_option( 'sblc_db_version', '0' );
 			self::create_tables();
 			global $wpdb;
+			self::migrate_scan_cursors( $previous_version );
 			$table = self::table_name( 'resources' );
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Normalize nullable legacy queue markers during a schema upgrade.
 			$wpdb->query( $wpdb->prepare( 'UPDATE %i SET checked_scan_id = 0 WHERE checked_scan_id IS NULL', $table ) );
@@ -74,6 +78,16 @@ final class Installer {
 				Database::save_latest_scan_history();
 				Database::prune_scan_history();
 			}
+		}
+	}
+
+	/** Restart an old metadata page because its cursor was an offset. */
+	private static function migrate_scan_cursors( $previous_version ) {
+		if ( version_compare( $previous_version, '1.1.3', '<' ) ) {
+			global $wpdb;
+			$scans = self::table_name( 'scans' );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- One-time migration of active scan cursors.
+			$wpdb->query( $wpdb->prepare( "UPDATE %i SET resource_cursor = 0 WHERE state = 'discovering' AND provider = 'postmeta'", $scans ) );
 		}
 	}
 
@@ -153,6 +167,7 @@ final class Installer {
 			context text NOT NULL,
 			raw_url text NOT NULL,
 			location varchar(80) NOT NULL DEFAULT '',
+			source_checksum char(64) NOT NULL DEFAULT '',
 			editable tinyint(1) unsigned NOT NULL DEFAULT 0,
 			occurrence_hash char(64) NOT NULL,
 			PRIMARY KEY  (id),

@@ -343,6 +343,7 @@ final class Scanner {
 		$processed          = absint( $scan->processed_sources );
 		$occurrences        = absint( $scan->discovered_occurrences );
 		$processed_in_batch = 0;
+		$next_offset        = $offset;
 
 		foreach ( $batch['items'] as $source ) {
 			if ( microtime( true ) >= $deadline ) {
@@ -351,13 +352,14 @@ final class Scanner {
 			$occurrences += Sources::store_source( $source, $scan->id );
 			++$processed;
 			++$processed_in_batch;
+			if ( 'postmeta' === $provider ) { $next_offset = absint( $source['cursor'] ); }
 		}
 
 		$consumed_all = count( $batch['items'] ) <= $processed_in_batch;
 		if ( ! $consumed_all ) {
-			$offset += $processed_in_batch;
+			$offset = 'postmeta' === $provider ? $next_offset : $offset + $processed_in_batch;
 		} elseif ( empty( $batch['page_complete'] ) ) {
-			$offset += count( $batch['items'] );
+			$offset = 'postmeta' === $provider ? $next_offset : $offset + count( $batch['items'] );
 		} elseif ( ! empty( $batch['has_more'] ) ) {
 			++$page;
 			$offset = 0;

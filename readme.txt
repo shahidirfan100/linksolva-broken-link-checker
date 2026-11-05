@@ -4,7 +4,7 @@ Tags: broken links, link checker, broken images, redirects, local scanner
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.23
+Stable tag: 1.0.24
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -99,11 +99,18 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 == Limitations ==
 
 * Some websites intentionally reject automated verification. A successful browser visit cannot always be reproduced by a server-side request.
-* Redirects to private, loopback, link-local, metadata, or otherwise reserved addresses are stopped for SSRF protection.
+* Redirects to private, loopback, link-local, metadata, or otherwise reserved addresses are stopped for SSRF protection. Requests require cURL so the connection can be pinned to a validated address; URLs routed through a configured WordPress or environment proxy remain unverified.
+* After a source is edited, run a new scan before repairing another finding in that source.
 * Structured page-builder data is review-only until a source-specific safe editor is available.
 * WordPress cron may be delayed or disabled by hosting configuration. The findings screen provides manual worker progress.
 
 == Changelog ==
+
+= 1.0.24 =
+* Pin HTTP checks to validated DNS addresses, honor WordPress request policies, and leave proxy-routed checks unverified.
+* Make repairs target the recorded occurrence, preserve source content and menu item settings, and detect source edits during verification.
+* Reduce unnecessary source hashing and repeated DNS lookups during scans.
+* Paginate post metadata by ID and safely restart active metadata scans during upgrade.
 
 = 1.0.23 =
 * Avoid repeating full-content text processing for every discovered URL.
@@ -185,6 +192,9 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * Added evidence-based HTTP classifications, URL deduplication, bounded scanning, safe repairs, and conflict-aware undo.
 
 == Upgrade Notice ==
+
+= 1.0.24 =
+Improves request safety, repair integrity, and scan performance. Run a new scan before repairing another finding in a source that has changed.
 
 = 1.0.23 =
 Reduces repeated processing of long post content and restricts same-site checks to the configured port.
