@@ -183,19 +183,24 @@ final class Extractor {
 	 * @param string $base Base URL.
 	 * @return string|\WP_Error
 	 */
-	public static function edit( $content, $old_raw, $old_url, $new_url, $operation, $base = '' ) {
+	public static function edit( $content, $old_raw, $old_url, $new_url, $operation, $base = '', $ordinal = 0, $location = '' ) {
 		$changed = 0;
+		$seen = 0;
 		$matches = static function ( $candidate ) use ( $old_raw, $old_url, $base ) {
 			return trim( html_entity_decode( $candidate, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) === trim( $old_raw ) || Url::normalize( $candidate, $base ) === $old_url;
 		};
 
 		if ( 'nofollow' === $operation ) {
+			if ( $location && 'a[href]' !== $location ) {
+				return new \WP_Error( 'sblc_not_found', __( 'The selected URL is not an editable link.', 'linksolva-broken-link-checker' ) );
+			}
 			$result = preg_replace_callback(
 				'~<a\b([^>]*)>~i',
-				static function ( $tag_match ) use ( $matches, &$changed ) {
+				static function ( $tag_match ) use ( $matches, &$changed, &$seen, $ordinal ) {
 					if ( $changed || ! preg_match( '~\bhref\s*=\s*["\']([^"\']*)["\']~i', $tag_match[0], $href ) || ! $matches( $href[1] ) ) {
 						return $tag_match[0];
 					}
+					if ( $seen++ !== $ordinal ) { return $tag_match[0]; }
 					if ( preg_match( '~\brel\s*=\s*(["\'])([^"\']*)\1~i', $tag_match[0], $rel ) ) {
 						if ( preg_match( '/(?:^|\s)nofollow(?:\s|$)/i', $rel[2] ) ) {
 							return $tag_match[0];
@@ -212,13 +217,14 @@ final class Extractor {
 			return $changed ? $result : new \WP_Error( 'sblc_not_found', __( 'The selected URL was not found in the source content.', 'linksolva-broken-link-checker' ) );
 		}
 
-		if ( 'unlink' === $operation ) {
+		if ( 'unlink' === $operation && ( ! $location || 'a[href]' === $location ) ) {
 			$result = preg_replace_callback(
 				'~<a\b[^>]*\bhref\s*=\s*(["\'])([^"\']*)\1[^>]*>(.*?)</a>~is',
-				static function ( $tag_match ) use ( $matches, &$changed ) {
+				static function ( $tag_match ) use ( $matches, &$changed, &$seen, $ordinal ) {
 					if ( $changed || ! $matches( $tag_match[2] ) ) {
 						return $tag_match[0];
 					}
+					if ( $seen++ !== $ordinal ) { return $tag_match[0]; }
 					++$changed;
 					return $tag_match[3];
 				},
@@ -227,34 +233,55 @@ final class Extractor {
 			if ( $changed ) {
 				return $result;
 			}
+			if ( $location ) { return new \WP_Error( 'sblc_not_found', __( 'The selected URL was not found in the source content.', 'linksolva-broken-link-checker' ) ); }
 		}
 
-		$result = preg_replace_callback(
-			'~<(a|img|source|video|audio)\b([^>]*?)\b(src|href)\s*=\s*(["\'])([^"\']*)\4([^>]*)>~is',
-			static function ( $tag_match ) use ( $matches, $new_url, &$changed ) {
-				if ( $changed || ! $matches( $tag_match[5] ) ) {
+		if ( preg_match( '/^(img|source|video|audio)\[(srcset|data-srcset)\]$/', $location, $srcset_parts ) ) {
+			$pattern = '~<(' . $srcset_parts[1] . ')\b([^>]*?)(?<![\w-])(' . $srcset_parts[2] . ')\s*=\s*(["\'])([^"\']*)\4([^>]*)>~is';
+			$result = preg_replace_callback( $pattern, static function ( $tag_match ) use ( $matches, $new_url, $operation, &$changed, &$seen, $ordinal ) {
+				$candidates = preg_split( '/\s*,\s*/', $tag_match[5] );
+				foreach ( $candidates as $index => $candidate ) {
+					$parts = preg_split( '/\s+/', trim( $candidate ), 2 );
+					if ( $changed || empty( $parts[0] ) || ! $matches( $parts[0] ) || $seen++ !== $ordinal ) { continue; }
+					++$changed;
+					if ( 'unlink' === $operation ) { unset( $candidates[ $index ] ); } else { $candidates[ $index ] = esc_attr( $new_url ) . ( isset( $parts[1] ) ? ' ' . $parts[1] : '' ); }
+				}
+				return '<' . $tag_match[1] . $tag_match[2] . $tag_match[3] . '=' . $tag_match[4] . implode( ', ', $candidates ) . $tag_match[4] . $tag_match[6] . '>';
+			}, $content );
+			return $changed ? $result : new \WP_Error( 'sblc_not_found', __( 'The selected URL was not found in the source content.', 'linksolva-broken-link-checker' ) );
+		}
+		if ( $location && 'text' !== $location && ! preg_match( '/^(a|img|source|video|audio)\[(href|src|data-src|data-lazy-src|data-original)\]$/', $location, $location_parts ) ) {
+			return new \WP_Error( 'sblc_not_found', __( 'This source location cannot be safely edited.', 'linksolva-broken-link-checker' ) );
+		}
+		if ( 'text' !== $location ) {
+			$tag = $location ? $location_parts[1] : '(?:a|img|source|video|audio)';
+			$attribute = $location ? $location_parts[2] : '(?:src|href)';
+			$pattern = '~<(' . $tag . ')\b([^>]*?)(?<![\w-])(' . $attribute . ')\s*=\s*(["\'])([^"\']*)\4([^>]*)>~is';
+			$seen = 0;
+			$result = preg_replace_callback( $pattern, static function ( $tag_match ) use ( $matches, $new_url, &$changed, &$seen, $ordinal ) {
+				if ( $changed || ! $matches( $tag_match[5] ) || $seen++ !== $ordinal ) {
 					return $tag_match[0];
 				}
 				++$changed;
 				return '<' . $tag_match[1] . $tag_match[2] . $tag_match[3] . '=' . $tag_match[4] . esc_attr( $new_url ) . $tag_match[4] . $tag_match[6] . '>';
-			},
-			$content
-		);
-		if ( $changed ) {
-			return $result;
+			}, $content );
+			if ( $changed ) { return $result; }
+			if ( $location ) { return new \WP_Error( 'sblc_not_found', __( 'The selected URL was not found in the source content.', 'linksolva-broken-link-checker' ) ); }
 		}
 
 		if ( $old_raw && false !== strpos( $content, $old_raw ) ) {
-			$safe_new_url = esc_url_raw( $new_url );
-			return preg_replace_callback(
-				'/' . preg_quote( $old_raw, '/' ) . '/',
-				static function () use ( $safe_new_url ) {
-					return $safe_new_url;
-				},
-				$content,
-				1,
-				$changed
-			);
+			// Match text nodes, never a URL that happens to appear in an HTML attribute.
+			$parts = preg_split( '/(<[^>]*>)/s', $content, -1, PREG_SPLIT_DELIM_CAPTURE );
+			$seen = 0;
+			foreach ( $parts as $index => $part ) {
+				if ( 1 === $index % 2 ) { continue; }
+				$parts[ $index ] = preg_replace_callback( '/' . preg_quote( $old_raw, '/' ) . '/', static function ( $match ) use ( &$changed, &$seen, $ordinal, $new_url ) {
+					if ( $changed || $seen++ !== $ordinal ) { return $match[0]; }
+					++$changed;
+					return esc_url_raw( $new_url );
+				}, $part );
+			}
+			if ( $changed ) { return implode( '', $parts ); }
 		}
 		return new \WP_Error( 'sblc_not_found', __( 'The selected URL was not found in the source content.', 'linksolva-broken-link-checker' ) );
 	}

@@ -135,6 +135,12 @@ jobs:
         run: php /tmp/wp.phar eval-file tests/benchmark-extractor.php --path=/tmp/linksolva-wp
       - name: Check unlink, undo, and conflict protection
         run: php /tmp/wp.phar eval-file tests/integration-repair.php --path=/tmp/linksolva-wp
+      - name: Check review fixes with a local HTTP fixture
+        run: |
+          cp tests/http-fixture.php /tmp/linksolva-wp/sblc-test-target.php
+          php -S 127.0.0.1:8080 -t /tmp/linksolva-wp >/tmp/linksolva-fixture.log 2>&1 &
+          for attempt in {1..20}; do curl -fsS 'http://127.0.0.1:8080/sblc-test-target.php?case=healthy' >/dev/null && break; sleep 1; done
+          php /tmp/wp.phar eval-file tests/integration-review-fixes.php --path=/tmp/linksolva-wp
       - name: Check duplicate sources and no-progress recovery
         run: php /tmp/wp.phar eval-file tests/integration-duplicate-scan.php --path=/tmp/linksolva-wp
       - name: Check discovery database failures
