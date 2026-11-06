@@ -1,6 +1,42 @@
 # LinkSolva Broken Link Checker roadmap
 
-Updated 5 November 2026.
+Updated 6 November 2026.
+
+## Implementation status (6 November 2026)
+
+Status checked against `main` at 1.0.23 and open PR [#8](https://github.com/shahidirfan100/linksolva-broken-link-checker/pull/8), head `d66b6ff`. PR #8 is still open and unmerged; its 1.0.24 changes are a candidate, not the WordPress.org release.
+
+### Applied on `main` in 1.0.23
+
+- Extraction reuses the stripped text and context once per source instead of repeating that work for every URL.
+- The configured-site SSRF exception is limited to the exact host, scheme, and effective port.
+- Worker duration, batch size, and parallel checks are bounded by PHP execution time and available memory. The plugin does not claim to measure shared-host CPU quotas.
+- Scan history, source-aware repairs, and conflict-aware undo are part of the current release.
+
+### Implemented in candidate 1.0.24 (PR #8)
+
+- cURL requests are pinned to validated DNS addresses, including one redirect hop at a time. Requests fail closed when WordPress or environment proxy settings would bypass the pin.
+- WordPress outbound-blocking and `pre_http_request` policies are honored by both parallel and single-request paths.
+- Repair hashes normalize IDs consistently; repairs verify the recorded source occurrence, preserve menu fields, and detect source edits made during replacement verification.
+- Metadata values are fetched in bounded slices using a `meta_id` cursor, and sources with no URLs skip checksum work. This does not yet remove offset traversal from every source provider.
+- Version metadata and changelog are synchronized at 1.0.24. PR #8's PHP 7.4/8.4, Plugin Check, WordPress integration, performance, and browser jobs passed on 6 November 2026.
+
+### Still planned or only partly covered
+
+- Keep the last completed report visible while a new scan runs or fails. History snapshots exist, but a new scan still rebuilds the live result set; staging and promotion need a separate design and migration plan.
+- Profile per-URL database work before adding hash caches or duplicate-safe bulk writes. The 2,000-URL fixture currently measures a findings page with 2,000 rows, but there is no dense repeated-URL fixture or large browser dashboard fixture with a before/after comparison.
+- Extend cursor traversal beyond metadata rows. Posts, comments, menus, and the post-ID pages used by metadata scanning still use page/offset traversal in places; replace those paths where profiling shows a benefit.
+- Add per-host concurrency limits and parse `Retry-After`. Current 429 and server-error retries use a fixed delay; the worker does not pace requests by host.
+- Keep adaptive sizing scoped: memory and PHP-time limits already reduce work, but database latency and site response health do not drive backoff, and there is no explicit low-resource mode.
+- Add soft-404 suspicion and repeat-failure evidence as review signals, plus WP-CLI scan/status/report commands.
+- Expand source coverage with read-only adapters for widgets, synced patterns, site-editor templates, and builders. Video/audio element URLs can be extracted, but there are no platform-specific video checks or iframe adapters.
+- Add orphan-page reporting only after menu, template, and builder coverage is broad enough to avoid false orphan results.
+- Repairs are source-aware and undoable; a preview for bulk repairs is not implemented.
+- Describe private-site support narrowly: the configured site authority has a specific exception, while other private-network targets are blocked by the SSRF guard. Test any broader local-network workflow in an isolated fixture before advertising it.
+
+### Current CI performance readings
+
+On the hosted runner for PR #8, the synthetic 2,000-URL scan took 9.79 seconds total, with a maximum worker step of 0.531 seconds, 55.3 MiB peak memory, and 12,740 queries. The 30,000-source sparse scan took 62.27 seconds total, with a maximum worker step of 0.478 seconds, 53.3 MiB peak memory, and 44,390 queries. A 1,000-link, 162,897-byte article extracted in 0.082 seconds. The 2,000-row findings page took 0.006 seconds and four queries in that run. These synthetic CI results are measurements, not a before/after comparison or a promise about customer hosting; the scan fixtures reject network requests, while browser checks use a local HTTP fixture.
 
 ## Product position
 
@@ -97,7 +133,7 @@ This audit was source review plus safe, static reasoning. It did not execute plu
 - Implemented in PR #6: reuse plain text/context during extraction, restrict the configured-site SSRF exception to its exact authority, add regression coverage, and bump release metadata.
 - GitHub Actions run on 5 November 2026 passed PHP 7.4/8.4 checks, Plugin Check, WordPress integration, browser checks, and all existing regressions. On the hosted Ubuntu 26.04 / PHP 8.2.35 / MySQL 8.0.46 runner: 1,000 links in a 162,897-byte article extracted in 0.065 s; the 2,000-URL scan took 9.76 s with 12,740 DB queries and 55.3 MiB peak memory; the 30,000-source sparse scan took 60.42 s with 44,388 queries and 53.3 MiB peak memory. Synthetic scan fixtures rejected all network requests. These are repeatable CI baselines, not a before/after comparison or customer-host performance claim.
 - Add a dense repeated-link fixture and a large-result dashboard fixture. Compare baseline and candidate on the same runner and PHP/WordPress versions; avoid fixed timing assertions that are flaky across hosts.
-- Keep the DNS pinning question open until every supported request transport, redirect hop, and configured proxy path is verified in a contained fixture.
+- DNS pinning was still open at the 5 November review. It is covered in candidate 1.0.24 by the cURL transport, redirect, and proxy fixtures described above; retain this gate if another transport path is introduced.
 
 #### Next — reduce local work per discovered URL
 
