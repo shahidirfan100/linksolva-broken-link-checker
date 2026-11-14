@@ -8,8 +8,8 @@ Make scans finish predictably, preserve trustworthy evidence, and stay within sh
 
 ## Current state
 
-- The WordPress.org release is 1.0.23. The 1.0.24 work is an open release candidate in PR #8; it is not yet released.
-- PR #8 adds DNS-pinned cURL checks, fail-closed proxy handling, occurrence-specific repairs, and cursor-based postmeta traversal.
+- The WordPress.org release is 1.0.23. PR #9 is the superseding 1.0.24 release candidate; PR #8 has been superseded and is not the release source.
+- PR #9 carries forward DNS-pinned cURL checks, fail-closed proxy handling, occurrence-specific repairs, and cursor-based postmeta traversal.
 - The current candidate also reduces database round trips with atomic URL and occurrence upserts, refreshes the admin findings less often, adapts its polling delay, schedules short WP-Cron continuations, and reports when the pinned transport is unavailable.
 - The plugin already has bounded workers, resumable discovery, URL-level evidence, scan history, source-aware repair/undo, and CI checks for PHP 7.4/8.4, Plugin Check, WordPress integration, and browser behavior.
 - WP-Cron is traffic-driven. Shorter continuation events reduce idle time on active sites, but a system cron is still needed for dependable work on low-traffic sites.
