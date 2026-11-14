@@ -57,7 +57,9 @@ final class Database {
 		$queued      = __( 'Queued', 'linksolva-broken-link-checker' );
 		$explanation = __( 'This URL has been discovered and is waiting for its verification request.', 'linksolva-broken-link-checker' );
 		$table       = $tables['resources'];
-		$sql        = $wpdb->prepare(
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- The atomic upsert is prepared inline and uses the unique URL hash.
+		$result = $wpdb->query(
+			$wpdb->prepare(
 			"INSERT INTO %i (url, url_hash, resource_type, link_scope, status, confidence, status_text, explanation, first_seen, last_seen, last_scan_id)
 			VALUES (%s, %s, %s, %s, 'pending', 'pending', %s, %s, %s, %s, %d)
 			ON DUPLICATE KEY UPDATE
@@ -91,9 +93,8 @@ final class Database {
 			$now,
 			$now,
 			$scan_id
+			)
 		);
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table uses an atomic, prepared upsert to avoid a read-before-write query for every URL.
-		$result = $wpdb->query( $sql );
 		return false === $result ? false : absint( $wpdb->insert_id );
 	}
 
@@ -107,30 +108,29 @@ final class Database {
 		global $wpdb;
 		$tables = self::tables();
 		$hash   = hash( 'sha256', wp_json_encode( array( absint( $data['resource_id'] ), absint( $data['scan_id'] ), $data['source_type'], absint( $data['source_id'] ), $data['source_field'], $data['raw_url'], $data['location'], absint( $data['occurrence_index'] ) ) ) );
-		$values = array(
-			absint( $data['resource_id'] ),
-			absint( $data['scan_id'] ),
-			sanitize_key( $data['source_type'] ),
-			absint( $data['source_id'] ),
-			sanitize_text_field( $data['source_field'] ),
-			sanitize_text_field( $data['source_title'] ),
-			esc_url_raw( $data['source_url'] ),
-			wp_strip_all_tags( $data['anchor_text'] ),
-			sanitize_textarea_field( $data['context'] ),
-			sanitize_text_field( $data['raw_url'] ),
-			sanitize_text_field( $data['location'] ),
-			isset( $data['source_checksum'] ) ? $data['source_checksum'] : '',
-			! empty( $data['editable'] ) ? 1 : 0,
-			$hash,
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- The idempotent insert is prepared inline and relies on the unique occurrence hash.
+		$inserted = $wpdb->query(
+			$wpdb->prepare(
+				'INSERT INTO %i (resource_id, scan_id, source_type, source_id, source_field, source_title, source_url, anchor_text, context, raw_url, location, source_checksum, editable, occurrence_hash)
+				VALUES (%d, %d, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s)
+				ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)',
+				$tables['occurrences'],
+				absint( $data['resource_id'] ),
+				absint( $data['scan_id'] ),
+				sanitize_key( $data['source_type'] ),
+				absint( $data['source_id'] ),
+				sanitize_text_field( $data['source_field'] ),
+				sanitize_text_field( $data['source_title'] ),
+				esc_url_raw( $data['source_url'] ),
+				wp_strip_all_tags( $data['anchor_text'] ),
+				sanitize_textarea_field( $data['context'] ),
+				sanitize_text_field( $data['raw_url'] ),
+				sanitize_text_field( $data['location'] ),
+				isset( $data['source_checksum'] ) ? $data['source_checksum'] : '',
+				! empty( $data['editable'] ) ? 1 : 0,
+				$hash
+			)
 		);
-		$sql = $wpdb->prepare(
-			'INSERT INTO %i (resource_id, scan_id, source_type, source_id, source_field, source_title, source_url, anchor_text, context, raw_url, location, source_checksum, editable, occurrence_hash)
-			VALUES (%d, %d, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s)
-			ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)',
-			array_merge( array( $tables['occurrences'] ), $values )
-		);
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- The unique hash makes this prepared insert idempotent without a separate existence query.
-		$inserted = $wpdb->query( $sql );
 		if ( false === $inserted ) {
 			return false;
 		}
