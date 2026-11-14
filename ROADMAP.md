@@ -10,25 +10,36 @@ Make scans finish predictably, preserve trustworthy evidence, and stay within sh
 
 - The WordPress.org release is 1.0.23. PR #9 is the superseding 1.0.24 release candidate; PR #8 has been superseded and is not the release source.
 - PR #9 carries forward DNS-pinned cURL checks, fail-closed proxy handling, occurrence-specific repairs, and cursor-based postmeta traversal.
-- The current candidate also reduces database round trips with atomic URL and occurrence upserts, refreshes the admin findings less often, adapts its polling delay, schedules short WP-Cron continuations, and reports when the pinned transport is unavailable.
+- The current candidate uses atomic URL and occurrence upserts, refreshes admin findings less often, adapts its polling delay, schedules short WP-Cron continuations, and reports when pinned transport is unavailable. CI shows a substantial query-count reduction for the unique-URL fixture, but no such reduction for the 30,000-source sparse fixture.
 - The plugin already has bounded workers, resumable discovery, URL-level evidence, scan history, source-aware repair/undo, and CI checks for PHP 7.4/8.4, Plugin Check, WordPress integration, and browser behavior.
 - WP-Cron is traffic-driven. Shorter continuation events reduce idle time on active sites, but a system cron is still needed for dependable work on low-traffic sites.
 
 ## Baseline and measurement rules
 
-The last successful CI run inspected during this roadmap review recorded:
+The pre-candidate reference run recorded:
 
-| Fixture | Baseline |
+| Fixture | Reference |
 |---|---|
 | 2,000 unique URLs | 201 worker steps, 8.33 seconds, 12,737 database queries, 55.3 MiB peak memory |
 | 30,000 source records with 3 unique URLs | 152 worker steps, 31.17 seconds, 44,359 database queries, 53.3 MiB peak memory |
 | Findings list | 2,000 URLs in the dataset, 20 rows returned, 0.004 seconds, 4 queries |
 
-The scan fixtures reject network requests. These are local CI measurements, not live-link timings, customer-host performance, or a comparison with cloud scanners. The findings-list test is a 20-row page, not a 2,000-row page. Record the exact commit, PHP version, WordPress version, database version, requests made, query count, elapsed worker time, and peak memory with every new result.
+The 1.0.24 candidate's WordPress integration run (#43613510567) recorded:
+
+| Fixture | Candidate result |
+|---|---|
+| 2,000 unique URLs | 201 worker steps, 10.33 seconds, 8,740 database queries, 55.3 MiB peak memory |
+| 30,000 source records with 3 unique URLs | 152 worker steps, 57.42 seconds, 44,378 database queries, 53.3 MiB peak memory |
+| Findings list | 2,000 URLs in the dataset, 20 rows returned, 0.006 seconds, 4 queries |
+| Long-content extraction | 1,000 links from 162,897 bytes in 0.043 seconds |
+
+The candidate cut query count by about 31% for the unique-URL fixture, but that fixture took longer. In the sparse 30,000-record fixture, query count was effectively unchanged and elapsed time increased. These timings come from separate CI runs, not a paired controlled benchmark, so repeat them on the same runner before drawing a wall-time conclusion. The measured slow path is source-heavy scanning, not rendering the 20-row findings page; per-stage profiling is needed to identify exactly which traversal or write operation dominates.
+
+All scan fixtures reject network requests. These are local synthetic CI measurements, not live-link timings, customer-host performance, or a comparison with cloud scanners. Record the exact commit, PHP version, WordPress version, database version, requests made, query count, elapsed worker time, and peak memory with every new result. The findings-list test is a 20-row page, not a 2,000-row page.
 
 ## Release candidate 1.0.24 — make scan work safe and responsive
 
-**Status: implementation in the superseding pull request; CI review required.**
+**Status: implementation complete in PR #9; all five CI jobs passed on commit `a2eae2b`. Performance is not yet proven: the candidate reduced queries for one fixture, while the 30,000-source fixture remains slow.**
 
 - Pin each permitted HTTP connection to the validated DNS address. Fail closed for unsupported cURL transports, proxy routes, and WordPress outbound-block policies.
 - Repair only the recorded source occurrence; detect source edits before changing or undoing content.
@@ -59,8 +70,9 @@ Do this before adding more scan features.
 4. Run the same fixtures against MySQL and supported MariaDB versions. Inspect query plans before adding indexes.
 5. Profile resource writes and source traversal after the atomic upsert change. Batch or cache further only when the measurements show a remaining bottleneck and duplicate/restart behavior stays correct.
 6. Test low PHP memory and execution-time limits. Workers must stop within the budget and resume without losing source locations or treating untested URLs as healthy.
+7. Add per-stage timers and query counts for source selection, content extraction, URL normalization/deduplication, resource writes, occurrence writes, and verification. Repeat paired runs on the same runner and database; prioritize the 30,000-source / 3-URL case because its current query count remains about 44,000 and its candidate wall time was 57.42 seconds.
 
-**Acceptance:** every scan completes or ends with a specific recoverable error; performance reports are repeatable on the same runner; correctness counts match the fixtures; query and memory changes are measured against the documented baseline.
+**Acceptance:** every scan completes or ends with a specific recoverable error; performance reports are repeatable on the same runner; correctness counts match the fixtures; query and memory changes are measured against the documented baseline; the measured 30,000-source case has an identified bottleneck and a documented target before further optimization.
 
 ## Phase 2 — dependable background operation
 
