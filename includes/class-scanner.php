@@ -659,7 +659,6 @@ final class Scanner {
 	 */
 	private static function release_lock() {
 		delete_option( self::LOCK_OPTION );
-		wp_clear_scheduled_hook( self::CONTINUATION_HOOK );
 	}
 
 	/**
