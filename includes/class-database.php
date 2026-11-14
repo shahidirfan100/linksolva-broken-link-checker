@@ -53,80 +53,48 @@ final class Database {
 		$hash   = Url::hash( $url );
 		$now    = self::now();
 		$scope  = Url::scope( $url );
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct, uncached access.
-		$existing = $wpdb->get_row( $wpdb->prepare( 'SELECT id, last_scan_id, ignored FROM %i WHERE url_hash = %s LIMIT 1', $tables['resources'], $hash ) );
-		if ( ! empty( $wpdb->last_error ) ) {
-			return false;
-		}
-		$id = $existing ? (int) $existing->id : 0;
-
-		if ( $id ) {
-			$data    = array(
-				'url'           => $url,
-				'resource_type' => $type,
-				'link_scope'    => $scope,
-				'last_seen'     => $now,
-				'last_scan_id'  => absint( $scan_id ),
-			);
-			$formats = array( '%s', '%s', '%s', '%s', '%d' );
-
-			/*
-			 * A URL can occur in many source records. Only the first occurrence in
-			 * a scan may reset its result; otherwise later pages would put an already
-			 * verified URL back into the queue and the scan could never settle.
-			 */
-			if ( absint( $existing->last_scan_id ) !== absint( $scan_id ) ) {
-				if ( ! empty( $existing->ignored ) ) {
-					/* Ignored resources remain ignored, but are counted as checked. */
-					$data['checked_scan_id'] = absint( $scan_id );
-					$formats[]               = '%d';
-				} else {
-					$data    = array_merge(
-						$data,
-						array(
-							'status'          => 'pending',
-							'confidence'      => 'pending',
-							'http_code'       => 0,
-							'error_code'      => '',
-							'status_text'     => __( 'Queued', 'linksolva-broken-link-checker' ),
-							'explanation'     => __( 'This URL has been rediscovered and is waiting for its verification request.', 'linksolva-broken-link-checker' ),
-							'final_url'       => '',
-							'redirect_chain'  => '',
-							'request_history' => '',
-							'response_time'   => 0,
-							'last_checked'    => null,
-							'next_check_at'   => null,
-							'retry_count'     => 0,
-							'checked_scan_id' => 0,
-						)
-					);
-					$formats = array_merge( $formats, array( '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%s', '%s', '%d', '%d' ) );
-				}
-			}
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct access.
-			$updated = $wpdb->update( $tables['resources'], $data, array( 'id' => $id ), $formats, array( '%d' ) );
-			return false === $updated ? false : $id;
-		}
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct access.
-		$inserted = $wpdb->insert(
-			$tables['resources'],
-			array(
-				'url'           => $url,
-				'url_hash'      => $hash,
-				'resource_type' => $type,
-				'link_scope'    => $scope,
-				'status'        => 'pending',
-				'confidence'    => 'pending',
-				'status_text'   => __( 'Queued', 'linksolva-broken-link-checker' ),
-				'explanation'   => __( 'This URL has been discovered and is waiting for its verification request.', 'linksolva-broken-link-checker' ),
-				'first_seen'    => $now,
-				'last_seen'     => $now,
-				'last_scan_id'  => absint( $scan_id ),
-			),
-			array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d' )
+		$scan_id     = absint( $scan_id );
+		$queued      = __( 'Queued', 'linksolva-broken-link-checker' );
+		$explanation = __( 'This URL has been discovered and is waiting for its verification request.', 'linksolva-broken-link-checker' );
+		$table       = $tables['resources'];
+		$sql        = $wpdb->prepare(
+			"INSERT INTO %i (url, url_hash, resource_type, link_scope, status, confidence, status_text, explanation, first_seen, last_seen, last_scan_id)
+			VALUES (%s, %s, %s, %s, 'pending', 'pending', %s, %s, %s, %s, %d)
+			ON DUPLICATE KEY UPDATE
+				id = LAST_INSERT_ID(id),
+				url = VALUES(url),
+				resource_type = VALUES(resource_type),
+				link_scope = VALUES(link_scope),
+				last_seen = VALUES(last_seen),
+				status = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, VALUES(status), status),
+				confidence = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, VALUES(confidence), confidence),
+				http_code = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, 0, http_code),
+				error_code = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, '', error_code),
+				status_text = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, VALUES(status_text), status_text),
+				explanation = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, VALUES(explanation), explanation),
+				final_url = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, '', final_url),
+				redirect_chain = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, '', redirect_chain),
+				request_history = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, '', request_history),
+				response_time = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, 0, response_time),
+				last_checked = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, NULL, last_checked),
+				next_check_at = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, NULL, next_check_at),
+				retry_count = IF(last_scan_id <> VALUES(last_scan_id) AND ignored = 0, 0, retry_count),
+				checked_scan_id = IF(last_scan_id <> VALUES(last_scan_id), IF(ignored = 1, VALUES(last_scan_id), 0), checked_scan_id),
+				last_scan_id = VALUES(last_scan_id)",
+			$table,
+			$url,
+			$hash,
+			$type,
+			$scope,
+			$queued,
+			$explanation,
+			$now,
+			$now,
+			$scan_id
 		);
-		return false === $inserted ? false : (int) $wpdb->insert_id;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table uses an atomic, prepared upsert to avoid a read-before-write query for every URL.
+		$result = $wpdb->query( $sql );
+		return false === $result ? false : absint( $wpdb->insert_id );
 	}
 
 	/**
@@ -139,37 +107,34 @@ final class Database {
 		global $wpdb;
 		$tables = self::tables();
 		$hash   = hash( 'sha256', wp_json_encode( array( absint( $data['resource_id'] ), absint( $data['scan_id'] ), $data['source_type'], absint( $data['source_id'] ), $data['source_field'], $data['raw_url'], $data['location'], absint( $data['occurrence_index'] ) ) ) );
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct, uncached access.
-		$found = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM %i WHERE occurrence_hash = %s LIMIT 1', $tables['occurrences'], $hash ) );
-		if ( ! empty( $wpdb->last_error ) ) {
+		$values = array(
+			absint( $data['resource_id'] ),
+			absint( $data['scan_id'] ),
+			sanitize_key( $data['source_type'] ),
+			absint( $data['source_id'] ),
+			sanitize_text_field( $data['source_field'] ),
+			sanitize_text_field( $data['source_title'] ),
+			esc_url_raw( $data['source_url'] ),
+			wp_strip_all_tags( $data['anchor_text'] ),
+			sanitize_textarea_field( $data['context'] ),
+			sanitize_text_field( $data['raw_url'] ),
+			sanitize_text_field( $data['location'] ),
+			isset( $data['source_checksum'] ) ? $data['source_checksum'] : '',
+			! empty( $data['editable'] ) ? 1 : 0,
+			$hash,
+		);
+		$sql = $wpdb->prepare(
+			'INSERT INTO %i (resource_id, scan_id, source_type, source_id, source_field, source_title, source_url, anchor_text, context, raw_url, location, source_checksum, editable, occurrence_hash)
+			VALUES (%d, %d, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s)
+			ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)',
+			array_merge( array( $tables['occurrences'] ), $values )
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- The unique hash makes this prepared insert idempotent without a separate existence query.
+		$inserted = $wpdb->query( $sql );
+		if ( false === $inserted ) {
 			return false;
 		}
-		if ( $found ) {
-			return 0;
-		}
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Plugin-owned mutable table requires direct access.
-		$inserted = $wpdb->insert(
-			$tables['occurrences'],
-			array(
-				'resource_id'     => absint( $data['resource_id'] ),
-				'scan_id'         => absint( $data['scan_id'] ),
-				'source_type'     => sanitize_key( $data['source_type'] ),
-				'source_id'       => absint( $data['source_id'] ),
-				'source_field'    => sanitize_text_field( $data['source_field'] ),
-				'source_title'    => sanitize_text_field( $data['source_title'] ),
-				'source_url'      => esc_url_raw( $data['source_url'] ),
-				'anchor_text'     => wp_strip_all_tags( $data['anchor_text'] ),
-				'context'         => sanitize_textarea_field( $data['context'] ),
-				'raw_url'         => sanitize_text_field( $data['raw_url'] ),
-				'location'        => sanitize_text_field( $data['location'] ),
-				'source_checksum' => isset( $data['source_checksum'] ) ? $data['source_checksum'] : '',
-				'editable'        => ! empty( $data['editable'] ) ? 1 : 0,
-				'occurrence_hash' => $hash,
-			),
-			array( '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
-		);
-		return false === $inserted ? false : (int) $wpdb->insert_id;
+		return 1 === (int) $wpdb->rows_affected ? absint( $wpdb->insert_id ) : 0;
 	}
 
 	/**

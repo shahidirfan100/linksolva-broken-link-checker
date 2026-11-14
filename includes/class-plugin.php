@@ -47,5 +47,6 @@ final class Plugin {
 		add_action( 'wp_ajax_sblc_refresh_rest_nonce', array( Admin::class, 'refresh_rest_nonce' ) );
 		add_action( 'rest_api_init', array( Rest::class, 'register' ) );
 		add_action( 'sblc_worker', array( Scanner::class, 'scheduled_step' ) );
+		add_action( Scanner::CONTINUATION_HOOK, array( Scanner::class, 'scheduled_step' ) );
 	}
 }

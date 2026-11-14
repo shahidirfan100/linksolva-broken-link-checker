@@ -55,7 +55,7 @@ final class Http_Checker {
 		}
 
 		/* Requests::request_multiple() is available in the supported WP 6.2+ range. */
-		if ( ! self::has_pinned_transport() ) {
+		if ( ! self::supports_pinned_transport() ) {
 			$results = array();
 			foreach ( $entries as $key => $entry ) {
 				$result = self::check_with_initial( $entry['url'], $entry['retry'], null, $deadline );
@@ -353,7 +353,7 @@ final class Http_Checker {
 			$preempted['duration'] = microtime( true ) - $start;
 			return $preempted;
 		}
-		if ( ! self::has_pinned_transport() || self::uses_proxy( $url ) || self::wordpress_blocks( $url ) ) {
+		if ( ! self::supports_pinned_transport() || self::uses_proxy( $url ) || self::wordpress_blocks( $url ) ) {
 			return array( 'response' => array(), 'code' => 0, 'message' => __( 'The request could not be safely pinned to a validated address.', 'linksolva-broken-link-checker' ), 'error' => true, 'error_code' => 'unsafe_transport', 'duration' => microtime( true ) - $start );
 		}
 		try {
@@ -486,7 +486,7 @@ final class Http_Checker {
 	}
 
 	/** Require a transport that can bind DNS validation to the connection. */
-	private static function has_pinned_transport() {
+	public static function supports_pinned_transport() {
 		return function_exists( 'curl_init' ) && defined( 'CURLOPT_RESOLVE' ) && class_exists( '\\WpOrg\\Requests\\Requests' ) && class_exists( '\\WpOrg\\Requests\\Transport\\Curl' ) && class_exists( '\\WP_HTTP_Requests_Hooks' );
 	}
 

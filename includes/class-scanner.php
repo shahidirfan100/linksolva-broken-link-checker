@@ -20,6 +20,8 @@ final class Scanner {
 	const NO_PROGRESS_LIMIT    = 5;
 	const DISCOVERY_BATCH_LIMIT = 20;
 	const WORKER_STALE_SECONDS = 60;
+	const CONTINUATION_HOOK     = 'sblc_worker_continue';
+	const CONTINUATION_DELAY    = 5;
 
 	/**
 	 * Start a new scan.
@@ -54,7 +56,11 @@ final class Scanner {
 			return new \WP_Error( 'sblc_scan_create_failed', __( 'The scan could not be created.', 'linksolva-broken-link-checker' ), array( 'status' => 500 ) );
 		}
 		self::set_lock_scan( $scan_id );
-		return self::step( $scan_id, $priority );
+		$progress = self::step( $scan_id, $priority );
+		if ( is_array( $progress ) && in_array( $progress['state'], array( 'discovering', 'checking', 'cancelling' ), true ) ) {
+			self::schedule_worker_continuation();
+		}
+		return $progress;
 	}
 
 	/**
@@ -199,6 +205,9 @@ final class Scanner {
 		$scan = Database::get_active_scan();
 		if ( $scan ) {
 			self::step( $scan->id );
+			if ( Database::get_active_scan() ) {
+				self::schedule_worker_continuation();
+			}
 			return;
 		}
 		$schedule = sanitize_key( Settings::get( 'schedule', 'manual' ) );
@@ -215,6 +224,13 @@ final class Scanner {
 			if ( is_wp_error( $result ) ) {
 				update_option( 'sblc_next_scan_at', time() + HOUR_IN_SECONDS, false );
 			}
+		}
+	}
+
+	/** Schedule one bounded follow-up while a scan remains active. */
+	private static function schedule_worker_continuation() {
+		if ( ! wp_next_scheduled( self::CONTINUATION_HOOK ) ) {
+			wp_schedule_single_event( time() + self::CONTINUATION_DELAY, self::CONTINUATION_HOOK );
 		}
 	}
 
@@ -474,7 +490,8 @@ final class Scanner {
 				'phase'   => 'idle',
 				'percent' => 0,
 				'message' => __( 'No scan has been run yet.', 'linksolva-broken-link-checker' ),
-				'counts'  => Database::counts(),
+				'counts'          => Database::counts(),
+				'transport_ready' => Http_Checker::supports_pinned_transport(),
 				'stats'   => array(
 					'total_resources'   => 0,
 					'checked_resources' => 0,
@@ -534,6 +551,7 @@ final class Scanner {
 			'processed_sources'      => absint( $scan->processed_sources ),
 			'discovered_occurrences' => absint( $scan->discovered_occurrences ),
 			'error_message'          => sanitize_text_field( $scan->error_message ),
+			'transport_ready'        => Http_Checker::supports_pinned_transport(),
 		);
 	}
 
@@ -641,6 +659,7 @@ final class Scanner {
 	 */
 	private static function release_lock() {
 		delete_option( self::LOCK_OPTION );
+		wp_clear_scheduled_hook( self::CONTINUATION_HOOK );
 	}
 
 	/**
