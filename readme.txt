@@ -110,6 +110,7 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * Pin HTTP checks to validated DNS addresses, honor WordPress request policies, and leave proxy-routed checks unverified.
 * Make repairs target the recorded occurrence, preserve source content and menu item settings, and detect source edits during verification.
 * Reduce scan database queries with atomic URL and occurrence upserts.
+* Avoid a separate database lookup for every post during large-site discovery.
 * Refresh admin findings every ten worker steps, use bounded adaptive pacing, and continue active scans through short WP-Cron events.
 * Show an admin warning when the pinned cURL transport required for safe URL checks is unavailable.
 * Paginate post metadata by ID, avoid hashing empty sources, and safely restart active metadata scans during upgrade.

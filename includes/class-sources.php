@@ -117,7 +117,7 @@ final class Sources {
 				'has_more'      => false,
 			);
 		}
-		$ids   = get_posts(
+		$posts = get_posts(
 			array(
 				'post_type'        => $types,
 				'post_status'      => 'publish',
@@ -125,14 +125,13 @@ final class Sources {
 				'paged'            => absint( $page ),
 				'orderby'          => 'ID',
 				'order'            => 'ASC',
-				'fields'           => 'ids',
+				'fields'           => 'all',
 				'suppress_filters' => false,
 			)
 		);
 		$items = array();
-		foreach ( $ids as $id ) {
-			$post = get_post( $id );
-			if ( ! $post ) {
+		foreach ( $posts as $post ) {
+			if ( ! ( $post instanceof \WP_Post ) ) {
 				continue;
 			}
 			$items[] = array(
@@ -166,7 +165,7 @@ final class Sources {
 		return array(
 			'items'         => $items,
 			'page_complete' => $page_complete,
-			'has_more'      => count( $ids ) === absint( $limit ),
+			'has_more'      => count( $posts ) === absint( $limit ),
 		);
 	}
 

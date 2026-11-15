@@ -78,13 +78,13 @@ jobs:
         run: |
           package_dir="build/linksolva-broken-link-checker"
           mkdir -p "$package_dir"
-          git archive --format=tar HEAD -- . \
-            ':(exclude).github' \
-            ':(exclude)ROADMAP.md' \
-            ':(exclude)tests' \
-            ':(exclude).gitignore' \
-            ':(exclude)wordpress-org-assets' |
-            tar -xf - -C "$package_dir"
+          git archive --format=tar HEAD | tar --exclude-from=.distignore -xf - -C "$package_dir"
+          test -f "$package_dir/linksolva-broken-link-checker.php"
+          test -f "$package_dir/readme.txt"
+          for excluded in .github .gitignore .distignore README.md ROADMAP.md tests wordpress-org-assets; do
+            test ! -e "$package_dir/$excluded"
+          done
+          (cd build && zip -qr linksolva-broken-link-checker.zip linksolva-broken-link-checker)
 
       - name: Run the official Plugin Check suite
         uses: wordpress/plugin-check-action@v1.1.9
@@ -92,6 +92,10 @@ jobs:
           build-dir: ./build/linksolva-broken-link-checker
           wp-version: latest
           strict: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linksolva-wordpress-org-package
+          path: build/linksolva-broken-link-checker.zip
 
   wordpress-integration:
     name: WordPress scan integration

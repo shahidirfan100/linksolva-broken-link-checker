@@ -1,0 +1,7 @@
+.github
+.gitignore
+.distignore
+README.md
+ROADMAP.md
+tests
+wordpress-org-assets

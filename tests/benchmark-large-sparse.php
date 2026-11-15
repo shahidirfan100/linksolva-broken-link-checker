@@ -1,6 +1,7 @@
 <?php
 /** Benchmark a sparse 30,000-job fixture on a disposable WordPress site. */
 use LinkSolva\BrokenLinkChecker\Extractor;
+use LinkSolva\BrokenLinkChecker\Sources;
 use LinkSolva\BrokenLinkChecker\Scanner;
 global $wpdb;
 register_post_type( 'job_listing', array( 'public' => true ) );
@@ -30,6 +31,15 @@ for ( $block = 0; $block < 100; ++$block ) {
 	$sql = 'INSERT INTO ' . $wpdb->posts . ' ' . $columns . ' VALUES ' . implode( ',', $values );
 	if ( false === $wpdb->query( $sql ) ) { throw new RuntimeException( 'Could not create sparse job fixtures.' ); }
 }
+wp_cache_flush();
+$batch_queries_start = $wpdb->num_queries;
+$first_batch = Sources::batch( 'posts', 1, 10 );
+$batch_queries = $wpdb->num_queries - $batch_queries_start;
+if ( 10 !== count( $first_batch['items'] ) || $batch_queries > 5 ) {
+	throw new RuntimeException( sprintf( 'A ten-post source batch used %d queries; expected at most five.', $batch_queries ) );
+}
+printf( "Cold post-source batch: records=10, queries=%d.\n", $batch_queries );
+wp_cache_flush();
 $start = microtime( true );
 $start_queries = $wpdb->num_queries;
 $max_step = 0;
