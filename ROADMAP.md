@@ -1,6 +1,6 @@
 # LinkSolva reliability and scale roadmap
 
-Updated 14 November 2026.
+Updated 15 November 2026.
 
 ## Goal
 
@@ -10,7 +10,7 @@ Make scans finish predictably, preserve trustworthy evidence, and stay within sh
 
 - The WordPress.org release is 1.0.23. PR #9 is the superseding 1.0.24 release candidate; PR #8 has been superseded and is not the release source.
 - PR #9 carries forward DNS-pinned cURL checks, fail-closed proxy handling, occurrence-specific repairs, and cursor-based postmeta traversal.
-- The current candidate uses atomic URL and occurrence upserts, refreshes admin findings less often, adapts its polling delay, schedules short WP-Cron continuations, and reports when pinned transport is unavailable. CI shows a substantial query-count reduction for the unique-URL fixture, but no such reduction for the 30,000-source sparse fixture.
+- The current candidate uses atomic URL and occurrence upserts, refreshes admin findings less often, adapts its polling delay, schedules short WP-Cron continuations, and reports when pinned transport is unavailable. Large-site discovery now loads post objects in batches instead of fetching each post again by ID. The latest 30,000-source run used about 54% fewer database queries than the earlier candidate, though its no-network runtime remains about 54 seconds.
 - The plugin already has bounded workers, resumable discovery, URL-level evidence, scan history, source-aware repair/undo, and CI checks for PHP 7.4/8.4, Plugin Check, WordPress integration, and browser behavior.
 - WP-Cron is traffic-driven. Shorter continuation events reduce idle time on active sites, but a system cron is still needed for dependable work on low-traffic sites.
 
@@ -24,22 +24,23 @@ The pre-candidate reference run recorded:
 | 30,000 source records with 3 unique URLs | 152 worker steps, 31.17 seconds, 44,359 database queries, 53.3 MiB peak memory |
 | Findings list | 2,000 URLs in the dataset, 20 rows returned, 0.004 seconds, 4 queries |
 
-The 1.0.24 candidate's WordPress integration run (#43613510567) recorded:
+The previous 1.0.24 candidate run (#43613510567) and the updated candidate run (#43721633515, code commit `d56a25b`) recorded:
 
-| Fixture | Candidate result |
-|---|---|
-| 2,000 unique URLs | 201 worker steps, 10.33 seconds, 8,740 database queries, 55.3 MiB peak memory |
-| 30,000 source records with 3 unique URLs | 152 worker steps, 57.42 seconds, 44,378 database queries, 53.3 MiB peak memory |
-| Findings list | 2,000 URLs in the dataset, 20 rows returned, 0.006 seconds, 4 queries |
-| Long-content extraction | 1,000 links from 162,897 bytes in 0.043 seconds |
+| Fixture | Earlier candidate | Updated candidate |
+|---|---|---|
+| 2,000 unique URLs | 201 steps, 10.33 seconds, 8,740 queries, 55.3 MiB | 201 steps, 8.11 seconds, 8,579 queries, 55.3 MiB |
+| 30,000 source records with 3 unique URLs | 152 steps, 57.42 seconds, 44,378 queries, 53.3 MiB | 152 steps, 53.74 seconds, 20,377 queries, 53.3 MiB |
+| Findings list | 2,000 URLs in the dataset, 20 rows returned, 0.006 seconds, 4 queries | 2,000 URLs in the dataset, 20 rows returned, 0.006 seconds, 4 queries |
+| Cold post-source batch | Not measured | 10 posts, 5 queries |
+| Long-content extraction | 1,000 links from 162,897 bytes in 0.043 seconds | 1,000 links from 162,897 bytes in 0.068 seconds |
 
-The candidate cut query count by about 31% for the unique-URL fixture, but that fixture took longer. In the sparse 30,000-record fixture, query count was effectively unchanged and elapsed time increased. These timings come from separate CI runs, not a paired controlled benchmark, so repeat them on the same runner before drawing a wall-time conclusion. The measured slow path is source-heavy scanning, not rendering the 20-row findings page; per-stage profiling is needed to identify exactly which traversal or write operation dominates.
+The updated candidate reduces query count by about 33% for the 2,000-URL fixture and about 54% for the sparse 30,000-record fixture compared with the pre-candidate reference. The cold ten-post source batch uses five queries, within its regression limit. The 30,000-record run still takes 53.74 seconds with network checks disabled. The ID-to-post N+1 lookup has been removed, but the remaining cost has not been isolated. These are separate CI runs, not paired controlled benchmarks; elapsed times vary and do not establish a speed advantage. Profile the remaining source traversal and writes before setting a further optimization target. The findings-list check still covers a 20-row page, not a 2,000-row page.
 
 All scan fixtures reject network requests. These are local synthetic CI measurements, not live-link timings, customer-host performance, or a comparison with cloud scanners. Record the exact commit, PHP version, WordPress version, database version, requests made, query count, elapsed worker time, and peak memory with every new result. The findings-list test is a 20-row page, not a 2,000-row page.
 
 ## Release candidate 1.0.24 — make scan work safe and responsive
 
-**Status: implementation complete in PR #9; all five CI jobs passed on commit `a2eae2b`. Performance is not yet proven: the candidate reduced queries for one fixture, while the 30,000-source fixture remains slow.**
+**Status: implementation and release checks complete in PR #9. All five CI jobs passed on code commit `d56a25b`; strict Plugin Check reported no errors, PHP 7.4/8.4 checks passed, and the WordPress.org package was built and inspected. The 1.0.24 candidate cuts large sparse-scan queries by about 54% against the reference, but its roughly 54-second synthetic runtime still needs profiling and paired repeats.**
 
 - Pin each permitted HTTP connection to the validated DNS address. Fail closed for unsupported cURL transports, proxy routes, and WordPress outbound-block policies.
 - Repair only the recorded source occurrence; detect source edits before changing or undoing content.
@@ -49,6 +50,7 @@ All scan fixtures reject network requests. These are local synthetic CI measurem
 - Schedule one bounded WP-Cron continuation about every five seconds while a scan remains active, retaining the one-minute event as a fallback.
 - Display a clear admin warning when the pinned cURL transport is unavailable; affected URLs must remain unverified.
 - Continue the bounded postmeta cursor migration and restart active postmeta scans safely.
+- Load post objects in the same batched WordPress query used for source discovery; avoid a second `get_post()` lookup per source record.
 
 ### Release gates
 
@@ -56,7 +58,7 @@ All scan fixtures reject network requests. These are local synthetic CI measurem
 - Strict WordPress Plugin Check passes.
 - Integration coverage confirms one resource per unique URL, every source occurrence retained once, ignored resources remain ignored, and existing results reset only when a new scan begins.
 - Repair, undo, DNS pinning, redirect, proxy, and outbound-policy checks pass.
-- CI reruns both scan fixtures on the same runner and compares query counts, elapsed time, and memory with the baseline above.
+- CI reruns both scan fixtures and compares query counts, elapsed time, and memory with the baseline above. The latest run is useful query-count evidence, but it is not a paired before/after timing run.
 - Browser checks confirm progress updates without a dashboard/list request after each step, final results refresh at completion, and the cURL warning is visible.
 - All scan errors remain visible and recoverable; no performance claim is published from a no-network fixture.
 
@@ -70,9 +72,9 @@ Do this before adding more scan features.
 4. Run the same fixtures against MySQL and supported MariaDB versions. Inspect query plans before adding indexes.
 5. Profile resource writes and source traversal after the atomic upsert change. Batch or cache further only when the measurements show a remaining bottleneck and duplicate/restart behavior stays correct.
 6. Test low PHP memory and execution-time limits. Workers must stop within the budget and resume without losing source locations or treating untested URLs as healthy.
-7. Add per-stage timers and query counts for source selection, content extraction, URL normalization/deduplication, resource writes, occurrence writes, and verification. Repeat paired runs on the same runner and database; prioritize the 30,000-source / 3-URL case because its current query count remains about 44,000 and its candidate wall time was 57.42 seconds.
+7. Add per-stage timers and query counts for source selection, permalink resolution, content extraction, URL normalization/deduplication, resource writes, occurrence writes, and verification. Repeat paired runs on the same runner and database; prioritize the 30,000-source / 3-URL case because the latest no-network run still takes 53.74 seconds and makes 20,377 queries after the post-object batching fix.
 
-**Acceptance:** every scan completes or ends with a specific recoverable error; performance reports are repeatable on the same runner; correctness counts match the fixtures; query and memory changes are measured against the documented baseline; the measured 30,000-source case has an identified bottleneck and a documented target before further optimization.
+**Acceptance:** every scan completes or ends with a specific recoverable error; performance reports are repeatable on the same runner; correctness counts match the fixtures; query and memory changes are measured against the documented baseline; the remaining 30,000-source cost is attributed to a measured stage and a target is documented before further optimization.
 
 ## Phase 2 — dependable background operation
 
