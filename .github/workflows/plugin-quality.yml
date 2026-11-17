@@ -78,13 +78,13 @@ jobs:
         run: |
           package_dir="build/linksolva-broken-link-checker"
           mkdir -p "$package_dir"
-          git archive --format=tar HEAD -- . \
-            ':(exclude).github' \
-            ':(exclude)ROADMAP.md' \
-            ':(exclude)tests' \
-            ':(exclude).gitignore' \
-            ':(exclude)wordpress-org-assets' |
-            tar -xf - -C "$package_dir"
+          git archive --format=tar HEAD | tar --exclude-from=.distignore -xf - -C "$package_dir"
+          test -f "$package_dir/linksolva-broken-link-checker.php"
+          test -f "$package_dir/readme.txt"
+          for excluded in .github .gitignore .distignore README.md ROADMAP.md tests wordpress-org-assets; do
+            test ! -e "$package_dir/$excluded"
+          done
+          (cd build && zip -qr linksolva-broken-link-checker.zip linksolva-broken-link-checker)
 
       - name: Run the official Plugin Check suite
         uses: wordpress/plugin-check-action@v1.1.9
@@ -92,6 +92,10 @@ jobs:
           build-dir: ./build/linksolva-broken-link-checker
           wp-version: latest
           strict: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linksolva-wordpress-org-package
+          path: build/linksolva-broken-link-checker.zip
 
   wordpress-integration:
     name: WordPress scan integration
@@ -135,6 +139,12 @@ jobs:
         run: php /tmp/wp.phar eval-file tests/benchmark-extractor.php --path=/tmp/linksolva-wp
       - name: Check unlink, undo, and conflict protection
         run: php /tmp/wp.phar eval-file tests/integration-repair.php --path=/tmp/linksolva-wp
+      - name: Check review fixes with a local HTTP fixture
+        run: |
+          cp tests/http-fixture.php /tmp/linksolva-wp/sblc-test-target.php
+          php -S 127.0.0.1:8080 -t /tmp/linksolva-wp >/tmp/linksolva-fixture.log 2>&1 &
+          for attempt in {1..20}; do curl -fsS 'http://127.0.0.1:8080/sblc-test-target.php?case=healthy' >/dev/null && break; sleep 1; done
+          php /tmp/wp.phar eval-file tests/integration-review-fixes.php --path=/tmp/linksolva-wp
       - name: Check duplicate sources and no-progress recovery
         run: php /tmp/wp.phar eval-file tests/integration-duplicate-scan.php --path=/tmp/linksolva-wp
       - name: Check discovery database failures

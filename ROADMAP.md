@@ -1,140 +1,109 @@
-# LinkSolva Broken Link Checker roadmap
+# LinkSolva reliability and scale roadmap
 
-Updated 5 November 2026.
+Updated 15 November 2026.
 
-## Product position
+## Goal
 
-LinkSolva's position is a local scanner with evidence and careful repairs. It should compete on dependable results, low hosting overhead, and clear controls; comparative performance claims require equivalent independent measurements.
+Make scans finish predictably, preserve trustworthy evidence, and stay within shared-host limits. LinkSolva should compete as a local, privacy-preserving checker. Do not claim it is faster than another product until the same workload has been run on equivalent environments.
 
-## Competitor observations (5 November 2026)
+## Current state
 
-These are descriptions from the plugins' own directory pages, not independently verified benchmarks:
+- The WordPress.org release is 1.0.23. PR #9 is the superseding 1.0.24 release candidate; PR #8 has been superseded and is not the release source.
+- PR #9 carries forward DNS-pinned cURL checks, fail-closed proxy handling, occurrence-specific repairs, and cursor-based postmeta traversal.
+- The current candidate uses atomic URL and occurrence upserts, refreshes admin findings less often, adapts its polling delay, schedules short WP-Cron continuations, and reports when pinned transport is unavailable. Large-site discovery now loads post objects in batches instead of fetching each post again by ID. The latest 30,000-source run used about 54% fewer database queries than the earlier candidate, though its no-network runtime remains about 54 seconds.
+- The plugin already has bounded workers, resumable discovery, URL-level evidence, scan history, source-aware repair/undo, and CI checks for PHP 7.4/8.4, Plugin Check, WordPress integration, and browser behavior.
+- WP-Cron is traffic-driven. Shorter continuation events reduce idle time on active sites, but a system cron is still needed for dependable work on low-traffic sites.
 
-- [Broken Link Checker by WPMU DEV](https://wordpress.org/plugins/broken-link-checker/) offers local and cloud engines. Its [documentation](https://wpmudev.com/docs/wpmu-dev-plugins/broken-link-checker/) says the cloud engine uses a WPMU DEV Hub connection and shows reports in the Hub; the local engine remains available in wp-admin.
-- [Broken Link Checker by AIOSEO](https://wordpress.org/plugins/broken-link-checker-seo/) runs checks in its cloud service and requires an AIOSEO account; its free plan scans up to 250 internal links each month. The listing describes video checks, broad WordPress source coverage, scheduled checks, inline repair, and service integrations.
-- [LinkRevive AI](https://wordpress.org/plugins/linkrevive-ai/) keeps routine checks on the site, marks inconclusive results unverified, repeats failed checks, and offers soft-404 review, adaptive pacing, WP-CLI, and optional Wayback/AI suggestions. Its listing claims it pins checked DNS addresses at connection time; optional suggestions can send link context to services after an administrator action.
-- [Linkmender](https://wordpress.org/plugins/linkmender/) checks links locally, uses spaced retries, supports row and bulk repair, and includes an orphan-page report. Its listing says it does not scan navigation menus or theme templates, which can make menu-linked pages appear orphaned.
-- [Link Invader](https://wordpress.org/plugins/link-invader/) describes budgeted slices, per-host throttling, WordPress-side internal checks, and a WP-CLI runner. Its stated ~10 ms front-end impact on a 1,000-link test is a vendor result, not an independent comparison.
-- [Awlware Link Checker](https://wordpress.org/plugins/awlware-link-checker/) is another local-first design reference; its listing emphasizes the WordPress HTTP API and privacy. Treat any performance statements on product pages as vendor claims.
+## Baseline and measurement rules
 
-## Differentiation to prioritize
+The pre-candidate reference run recorded:
 
-- Keep the local-only data path and evidence trail explicit. LinkSolva can stand apart from cloud-first tools without requiring an account, while its status model avoids calling blocked, temporary, rate-limited, or inconclusive results broken.
-- Keep every repair reversible and source-aware. Retain the complete before/after record and conflict check, and make read-only sources visibly non-editable.
-- Add a soft-404 suspicion signal only as a separate review state. Never promote a guessed page-content result to confirmed broken without HTTP evidence.
-- Add `Retry-After` support and host-aware pacing before adding broader automatic monitoring. This addresses remote rate limits while keeping the worker queue bounded.
-- Expand read-only source adapters for common block and builder data, then add video-link checks with platform-specific evidence. Prioritize based on support demand and test each adapter against safe repair boundaries.
-- Consider WP-CLI scan and status commands for agency workflows after the interrupted-scan and history-retention work is complete.
-- Treat orphan detection as a later, clearly scoped tool. Account for menu, template, and builder sources before presenting a page as orphaned.
+| Fixture | Reference |
+|---|---|
+| 2,000 unique URLs | 201 worker steps, 8.33 seconds, 12,737 database queries, 55.3 MiB peak memory |
+| 30,000 source records with 3 unique URLs | 152 worker steps, 31.17 seconds, 44,359 database queries, 53.3 MiB peak memory |
+| Findings list | 2,000 URLs in the dataset, 20 rows returned, 0.004 seconds, 4 queries |
 
-Competitor notes summarize the vendors' current plugin pages and documentation. They are not independent tests or performance comparisons.
+The previous 1.0.24 candidate run (#43613510567) and the updated candidate run (#43721633515, code commit `d56a25b`) recorded:
 
-## Prior release: 1.0.22
+| Fixture | Earlier candidate | Updated candidate |
+|---|---|---|
+| 2,000 unique URLs | 201 steps, 10.33 seconds, 8,740 queries, 55.3 MiB | 201 steps, 8.11 seconds, 8,579 queries, 55.3 MiB |
+| 30,000 source records with 3 unique URLs | 152 steps, 57.42 seconds, 44,378 queries, 53.3 MiB | 152 steps, 53.74 seconds, 20,377 queries, 53.3 MiB |
+| Findings list | 2,000 URLs in the dataset, 20 rows returned, 0.006 seconds, 4 queries | 2,000 URLs in the dataset, 20 rows returned, 0.006 seconds, 4 queries |
+| Cold post-source batch | Not measured | 10 posts, 5 queries |
+| Long-content extraction | 1,000 links from 162,897 bytes in 0.043 seconds | 1,000 links from 162,897 bytes in 0.068 seconds |
 
-- Current changes give a fresh worker more time for a request, bound retries, load dashboard data concurrently, count source locations for the visible page, and show evidence and repair progress. Expired REST nonces can be refreshed for signed-in administrators; an expired login still requires signing in.
-- Bracketed IPv6 literals are normalized before request-safety classification; the guard now reports blocked IPv6 destinations as blocked addresses instead of DNS failures.
-- GitHub tests cover WordPress Plugin Check, PHP compatibility, a 2,000-URL synthetic fixture, browser evidence and unlink flows, permission handling, and conflict-aware undo. The synthetic 2,000-URL scan does not send network requests. Results are not measurements of customer hosting or competitor performance.
-- The browser workflow captures real plugin screens with labelled sample findings and performs a five-URL HTTP scan against a local fixture: healthy, 404, redirect, two-second response and HEAD-to-GET fallback. On the 30 October GitHub runner, one run took 2.16 seconds; PHP web-server processes peaked at 375.7 MiB summed RSS and 10% summed `ps` lifetime-average CPU. This includes the server and workers, double-counts shared memory, and is not a per-request or shared-host benchmark. Expand the workload and record idle baselines before drawing performance conclusions.
-- Do not treat unverified URLs as healthy or confirmed broken, or replace site-level HTTP evidence with a database lookup unless the meaning and limitations of the local result are clear.
+The updated candidate reduces query count by about 33% for the 2,000-URL fixture and about 54% for the sparse 30,000-record fixture compared with the pre-candidate reference. The cold ten-post source batch uses five queries, within its regression limit. The 30,000-record run still takes 53.74 seconds with network checks disabled. The ID-to-post N+1 lookup has been removed, but the remaining cost has not been isolated. These are separate CI runs, not paired controlled benchmarks; elapsed times vary and do not establish a speed advantage. Profile the remaining source traversal and writes before setting a further optimization target. The findings-list check still covers a 20-row page, not a 2,000-row page.
 
-## MVP definition
+All scan fixtures reject network requests. These are local synthetic CI measurements, not live-link timings, customer-host performance, or a comparison with cloud scanners. Record the exact commit, PHP version, WordPress version, database version, requests made, query count, elapsed worker time, and peak memory with every new result. The findings-list test is a 20-row page, not a 2,000-row page.
 
-The MVP is a local audit workflow that:
+## Release candidate 1.0.24 — make scan work safe and responsive
 
-1. Finds links and images in supported WordPress sources and groups repeated URLs.
-2. Shows the response evidence and every source location.
-3. Separates confirmed 404/410 results from blocked, temporary, and inconclusive responses.
-4. Uses bounded work, safe request targets, and repair actions with conflict-aware undo.
-5. Supports manual and scheduled scans without sending site content to a developer service.
-6. Passes the official Plugin Check suite and PHP syntax checks at the declared minimum PHP version.
+**Status: implementation and release checks complete in PR #9. All five CI jobs passed on code commit `d56a25b`; strict Plugin Check reported no errors, PHP 7.4/8.4 checks passed, and the WordPress.org package was built and inspected. The 1.0.24 candidate cuts large sparse-scan queries by about 54% against the reference, but its roughly 54-second synthetic runtime still needs profiling and paired repeats.**
 
-The current release already provides much of this baseline: local scans, posts and public post types, menus, featured images, optional comments and scalar metadata, bounded workers, SSRF checks, response history, CSV export, and audited repairs.
+- Pin each permitted HTTP connection to the validated DNS address. Fail closed for unsupported cURL transports, proxy routes, and WordPress outbound-block policies.
+- Repair only the recorded source occurrence; detect source edits before changing or undoing content.
+- Use atomic URL and occurrence writes to remove the read-before-write database query for each discovered item. Preserve duplicate handling, ignored resources, and scan-resume behavior.
+- Show progress from the worker response. Refresh the findings and dashboard at phase changes, every ten steps, and completion instead of after every step.
+- Set a minimum 250 ms admin pause and scale the pause to the observed worker response time, capped at 1.2 seconds. Keep slower backoff when progress stalls.
+- Schedule one bounded WP-Cron continuation about every five seconds while a scan remains active, retaining the one-minute event as a fallback.
+- Display a clear admin warning when the pinned cURL transport is unavailable; affected URLs must remain unverified.
+- Continue the bounded postmeta cursor migration and restart active postmeta scans safely.
+- Load post objects in the same batched WordPress query used for source discovery; avoid a second `get_post()` lookup per source record.
 
-## Release 1.0.11
+### Release gates
 
-- Reduce browser polling frequency during a live scan.
-- Make the evidence drawer usable with Escape and keyboard focus control.
-- Correct copy that implied one HTTP request per URL or called the current concurrency value a measured safe default.
-- Add GitHub Actions checks for PHP 7.4 and 8.4 syntax, version consistency, and the official WordPress Plugin Check Action.
-- Keep the LinkSolva name, palette, and existing dashboard structure.
+- PHP 7.4 and 8.4 syntax and release metadata pass.
+- Strict WordPress Plugin Check passes.
+- Integration coverage confirms one resource per unique URL, every source occurrence retained once, ignored resources remain ignored, and existing results reset only when a new scan begins.
+- Repair, undo, DNS pinning, redirect, proxy, and outbound-policy checks pass.
+- CI reruns both scan fixtures and compares query counts, elapsed time, and memory with the baseline above. The latest run is useful query-count evidence, but it is not a paired before/after timing run.
+- Browser checks confirm progress updates without a dashboard/list request after each step, final results refresh at completion, and the cURL warning is visible.
+- All scan errors remain visible and recoverable; no performance claim is published from a no-network fixture.
 
-## Release 1.0.12
+## Phase 1 — prove performance on realistic sites
 
-- Finish scans when URLs cannot be checked within the worker time budget, and report the skipped count for manual review.
-- Adjust worker duration, batch size, and parallel checks to PHP execution-time and memory headroom.
-- Keep CPU-quota behavior conservative because shared hosts do not expose a reliable per-account CPU signal.
+Do this before adding more scan features.
 
-## Release 1.0.15 candidate
+1. Add deterministic end-to-end browser runs for a small site, 2,000 unique URLs, repeated links across many sources, and 30,000 job records with sparse links.
+2. Exercise healthy, missing, redirecting, slow, rate-limited, and unreachable targets through a controlled HTTP fixture.
+3. Report request count, database queries, per-step duration, total wall time, peak memory, and completion state. Separate discovery, HTTP verification, report refresh, and history snapshot timings.
+4. Run the same fixtures against MySQL and supported MariaDB versions. Inspect query plans before adding indexes.
+5. Profile resource writes and source traversal after the atomic upsert change. Batch or cache further only when the measurements show a remaining bottleneck and duplicate/restart behavior stays correct.
+6. Test low PHP memory and execution-time limits. Workers must stop within the budget and resume without losing source locations or treating untested URLs as healthy.
+7. Add per-stage timers and query counts for source selection, permalink resolution, content extraction, URL normalization/deduplication, resource writes, occurrence writes, and verification. Repeat paired runs on the same runner and database; prioritize the 30,000-source / 3-URL case because the latest no-network run still takes 53.74 seconds and makes 20,377 queries after the post-object batching fix.
 
-- Check discovered URLs between source batches and show progress against URLs found so far, noting that the percentage can change as new URLs are discovered.
-- Keep scans resumable when cron is delayed; do not treat inactivity alone as a failed URL.
-- Stop a new scan when the previous completed report cannot be saved and report database failures instead of assuming an empty queue.
-- Add a disposable WordPress/MySQL integration test for a completed scan and failed history save.
-- Release blockers: test the candidate on WordPress, handle interrupted workers with targeted recovery, and bound history snapshots for large sites. Benchmark resource use before performance claims.
+**Acceptance:** every scan completes or ends with a specific recoverable error; performance reports are repeatable on the same runner; correctness counts match the fixtures; query and memory changes are measured against the documented baseline; the remaining 30,000-source cost is attributed to a measured stage and a target is documented before further optimization.
 
-## Release 1.0.18 candidate review
+## Phase 2 — dependable background operation
 
-- Report database write failures during discovery instead of silently dropping URLs or source locations.
-- PRs #2, #3, and #4 are stacked; the newest branch includes the earlier changes. Validate the complete tree rather than publishing any earlier branch independently.
-- Release blockers remain: recovery after repeated hard PHP termination, bounded and resumable history snapshots, browser-level refresh and live-update coverage, repair and undo smoke tests, and large-site performance measurements with real HTTP traffic.
-- Security review must assess DNS rebinding between address validation and the subsequent network connection, including the parallel Requests path and redirect hops.
+1. Add WP-CLI commands to start, advance, inspect, cancel, and export a scan so hosting cron can run it without an open admin page.
+2. Add a health/readiness panel for cURL transport, proxy routing, WP-Cron activity, database write failures, and the last worker timestamp.
+3. Preserve the last completed report while a new scan runs. Stage new results and promote them only after a completed scan; include a migration and rollback plan before changing the live result tables.
+4. Recover stale worker locks and interrupted history snapshots with targeted cleanup. Never discard the only completed report during recovery.
+5. Document system cron setup and verify both standard traffic-driven WP-Cron and low-traffic deployments.
 
-## Audit findings and forward roadmap (5 November 2026)
+**Acceptance:** a scan can finish after the initiating browser closes, a stopped scan can resume, and an administrator can distinguish delayed cron from a stalled worker or unavailable transport.
 
-This audit was source review plus safe, static reasoning. It did not execute plugin code or contact live link targets. Performance timings and transport-level security behavior therefore remain pending isolated CI/fixture validation.
+## Phase 3 — safer network behavior
 
-### Immediate fixes in the current work
+1. Add per-host concurrency limits.
+2. Parse and honor `Retry-After` for HTTP 429 and supported transient responses.
+3. Add persisted, spaced retries for timeouts and temporary errors. Do not repeatedly request a host that is rate-limiting the site.
+4. Consider internal-link resolution through WordPress as a separate evidence class. A database match is not proof that the public HTTP route returns the same result.
+5. Keep soft-404 signals in a review state. Require repeat evidence before changing a confirmed status.
 
-- **Extraction CPU:** Link context used to strip tags and normalize the entire post once for every URL found in it. That multiplied full-content work by the link count. Extraction now creates the plain-text body and compact context once per source, then reuses the context. A 163 KB article / 1,000-link benchmark is added to CI; record the runner's elapsed time and memory before making a speed claim.
-- **SSRF port exception:** the configured site hostname used to exempt every port from the nonstandard-port check. The exception now matches the configured host, scheme, and effective port. Focused regression cases cover the default and configured nonstandard home ports; other ports must be blocked.
-- **Security follow-up:** DNS answers are checked before the WordPress Requests transport connects, but the validated address is not pinned to the later connection in the plugin code. DNS rebinding is a potential time-of-check/time-of-use gap, not a confirmed exploit in every supported transport. Resolve it or document a transport-specific fail-closed policy before claiming SSRF protection is complete. Test only with a disposable resolver and local listener in an isolated runner.
-- **Not measured yet:** every candidate currently passes through resource and occurrence database lookups/writes; large result tables also incur full counts, a status sort, and paginated listing. Source providers use offset pagination and some materialize metadata before slicing. These are plausible local scan/admin bottlenecks; measure query count, plans, memory, and worker latency before rewriting them.
+**Acceptance:** a single host cannot consume the whole scan budget; temporary and rate-limited results remain distinct from confirmed 404/410 results.
 
-### Release sequence
+## Phase 4 — broaden coverage without unsafe edits
 
-#### 1.0.23 — close review findings and establish a baseline
+1. Add read-only adapters for widgets, synced patterns, site-editor templates, and widely used builders based on support demand.
+2. Add source-specific repair support only when exact occurrence location, conflict detection, and undo are covered.
+3. Add iframe and platform-specific video checks with evidence appropriate to each provider.
+4. Add orphan-page reports only after menu, template, and builder coverage is broad enough to avoid false orphan results.
+5. Consider optional Wayback or AI suggestions only after a clear administrator action and an explicit disclosure of what content leaves the site.
 
-- Implemented in PR #6: reuse plain text/context during extraction, restrict the configured-site SSRF exception to its exact authority, add regression coverage, and bump release metadata.
-- GitHub Actions run on 5 November 2026 passed PHP 7.4/8.4 checks, Plugin Check, WordPress integration, browser checks, and all existing regressions. On the hosted Ubuntu 26.04 / PHP 8.2.35 / MySQL 8.0.46 runner: 1,000 links in a 162,897-byte article extracted in 0.065 s; the 2,000-URL scan took 9.76 s with 12,740 DB queries and 55.3 MiB peak memory; the 30,000-source sparse scan took 60.42 s with 44,388 queries and 53.3 MiB peak memory. Synthetic scan fixtures rejected all network requests. These are repeatable CI baselines, not a before/after comparison or customer-host performance claim.
-- Add a dense repeated-link fixture and a large-result dashboard fixture. Compare baseline and candidate on the same runner and PHP/WordPress versions; avoid fixed timing assertions that are flaky across hosts.
-- Keep the DNS pinning question open until every supported request transport, redirect hop, and configured proxy path is verified in a contained fixture.
+## Definition of a reliable release
 
-#### Next — reduce local work per discovered URL
-
-- Preserve the latest completed report while a new scan is running or if it stops. This requires staging scan results and promoting them after successful completion, plus a database migration plan.
-- Profile `upsert_resource()` and `add_occurrence()` on repeated and unique URLs. Prototype per-scan hash caching and duplicate-safe writes only if idempotence, concurrent workers, resume, and ignored-resource behavior remain correct.
-- Replace provider `OFFSET` traversal with bounded keyset/cursor progress where it avoids rescanning rows. Keep each step inside the existing time and memory budgets.
-- Profile dashboard polling separately from discovery. Avoid recalculating heavy counts and sorted results more often than the visible UI needs; keep scan progress live without adding queries to public page views.
-- Test on low-resource and larger fixtures, including query totals and DB size, before changing defaults or publishing speed claims.
-
-#### Following — make request behavior safer and more predictable
-
-- Add per-host concurrency limits and persist spaced retries for 429 responses, `Retry-After`, timeouts, and transient server failures.
-- Consider adaptive worker sizing that backs off when database writes, memory, worker duration, or site response time degrade; LinkRevive and Link Invader both advertise host-aware operation, so this is a meaningful local-first differentiator.
-- Keep weak signals such as soft 404s in a review state, and require repeat failure evidence before upgrading temporary outcomes to broken.
-- Add WP-CLI scan/status/report commands after interrupted-scan recovery and history retention are dependable.
-
-#### Later — expand source coverage without risking edits
-
-- Add read-only adapters for block navigation, widgets, synced patterns, and site-editor templates, then prioritize builder adapters from support demand.
-- Add iframe and video checks with platform-specific evidence. Do not label a video as broken solely because its containing page returns 200 or a provider blocks the request.
-- Add orphan-page reporting only after menus, templates, and supported builder sources are represented, so the report does not mislead users.
-
-### What can make LinkSolva stand out
-
-- Keep the full scan, evidence, and repair history local, with no account or monthly link quota; retain support for staging and private sites where externally hosted crawlers cannot reach the content.
-- Pair that privacy with a conservative evidence model: show why a URL is broken, blocked, rate-limited, or unverified; never collapse these into one red “broken” bucket.
-- Make shared-host behavior measurable and adjustable: bounded work, per-host pacing, visible retry timing, and a clear low-resource mode.
-- Keep repairs source-aware and undoable, including a preview of affected locations for bulk actions.
-- Close the biggest competitor gaps in source coverage and CLI workflow, but only after each source adapter has a safe, tested edit boundary.
-
-Competitor feature descriptions and performance claims in this section are taken from current WordPress.org listings and are not independent product tests.
-
-## Release gates
-
-- Apply Antislop during implementation and review for every change to the dashboard design, plugin code, or user-facing copy. Check interface structure, accessibility and responsive states; code and comments for unnecessary boilerplate or redundant explanations; and copy for generic phrasing, unsupported claims, and unclear actions. Preserve the LinkSolva name and brand colors.
-- Plugin Check has no unreviewed findings; exceptions need a code-level reason and a narrow suppression.
-- PHP syntax passes on PHP 7.4 and a current PHP release.
-- Runtime smoke checks cover activation, deactivation, scan start and cancellation, URL status classes, redirect safety, settings sanitization, repair, and undo with `WP_DEBUG` enabled.
-- Performance checks record peak memory, elapsed worker time, query count, and HTTP requests for representative small and large sites.
-- WordPress.org metadata stays synchronized, and each release includes a user-facing changelog entry.
+A release is ready when installation and upgrade preserve existing data; scans complete or report why they stopped; every finding has clear HTTP or local-resolution evidence; retries and resume do not duplicate locations; repairs are occurrence-specific and undoable; and tests cover the declared PHP/WordPress/database support range. Feature count and vendor speed claims are not release criteria.

@@ -105,6 +105,7 @@ final class Ssrf_Guard {
 				'safe' => true,
 				'code' => '',
 				'host' => $host,
+				'addresses' => array( $host ),
 			);
 		}
 
@@ -138,6 +139,7 @@ final class Ssrf_Guard {
 			'safe' => true,
 			'code' => '',
 			'host' => $host,
+			'addresses' => $addresses,
 		);
 	}
 

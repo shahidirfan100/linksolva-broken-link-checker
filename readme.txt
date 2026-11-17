@@ -4,7 +4,7 @@ Tags: broken links, link checker, broken images, redirects, local scanner
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.23
+Stable tag: 1.0.24
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -44,7 +44,7 @@ Supported post content, approved comment content, and custom menu URLs can be re
 
 ### Resource controls
 
-Scanning runs in small resumable worker requests. The scanner checks discovered URLs in small batches as it continues finding more. During discovery, the percentage shows the share of URLs found so far that have been checked; it can change as new URLs are found. Repeated occurrences do not re-queue a settled URL. Only one worker request processes the scan at a time. Worker duration follows PHP's execution-time limit. Batch size and parallel requests adjust to available PHP memory; no more than four URLs are checked at once. URLs wait for another worker when too little time remains to start a check. Timeouts are retried up to the configured limit; URLs that remain inconclusive are shown for review. Hosting execution limits can shorten the effective request timeout. PHP does not reliably expose shared-host CPU quotas, so the plugin uses conservative concurrency limits rather than claiming to measure CPU availability. Manual scanning remains available when WordPress cron is delayed.
+Scanning runs in bounded, resumable worker requests. The admin screen shows each worker response immediately, refreshes findings every ten steps, and adjusts its pause based on worker response time. During discovery, the percentage shows the share of URLs found so far that have been checked; it can change as new URLs are found. Repeated occurrences do not re-queue a settled URL. Only one worker request processes the scan at a time. Worker duration follows PHP's execution-time limit. Batch size and parallel requests adjust to available PHP memory; no more than four URLs are checked at once. URLs wait for another worker when too little time remains to start a check. Timeouts are retried up to the configured limit; URLs that remain inconclusive are shown for review. Hosting execution limits can shorten the effective request timeout. PHP does not reliably expose shared-host CPU quotas, so the plugin uses conservative concurrency limits rather than claiming to measure CPU availability. While a scan is active, LinkSolva also schedules a bounded WP-Cron continuation about every five seconds, with the existing minute event as a fallback. WP-Cron still depends on site traffic; configure a system cron on low-traffic sites. Manual scanning remains available if cron is delayed.
 
 ### Privacy
 
@@ -99,11 +99,21 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 == Limitations ==
 
 * Some websites intentionally reject automated verification. A successful browser visit cannot always be reproduced by a server-side request.
-* Redirects to private, loopback, link-local, metadata, or otherwise reserved addresses are stopped for SSRF protection.
+* Redirects to private, loopback, link-local, metadata, or otherwise reserved addresses are stopped for SSRF protection. Requests require cURL so the connection can be pinned to a validated address; URLs routed through a configured WordPress or environment proxy remain unverified.
+* After a source is edited, run a new scan before repairing another finding in that source.
 * Structured page-builder data is review-only until a source-specific safe editor is available.
 * WordPress cron may be delayed or disabled by hosting configuration. The findings screen provides manual worker progress.
 
 == Changelog ==
+
+= 1.0.24 =
+* Pin HTTP checks to validated DNS addresses, honor WordPress request policies, and leave proxy-routed checks unverified.
+* Make repairs target the recorded occurrence, preserve source content and menu item settings, and detect source edits during verification.
+* Reduce scan database queries with atomic URL and occurrence upserts.
+* Avoid a separate database lookup for every post during large-site discovery.
+* Refresh admin findings every ten worker steps, use bounded adaptive pacing, and continue active scans through short WP-Cron events.
+* Show an admin warning when the pinned cURL transport required for safe URL checks is unavailable.
+* Paginate post metadata by ID, avoid hashing empty sources, and safely restart active metadata scans during upgrade.
 
 = 1.0.23 =
 * Avoid repeating full-content text processing for every discovered URL.
@@ -185,6 +195,9 @@ No. Styles and scripts are loaded only on the plugin's WordPress admin screens.
 * Added evidence-based HTTP classifications, URL deduplication, bounded scanning, safe repairs, and conflict-aware undo.
 
 == Upgrade Notice ==
+
+= 1.0.24 =
+Improves request safety, repair integrity, and scan throughput while keeping each worker bounded. Run a new scan before repairing another finding in a source that has changed.
 
 = 1.0.23 =
 Reduces repeated processing of long post content and restricts same-site checks to the configured port.

@@ -56,6 +56,7 @@ final class Admin {
 					'Your session has expired or you do not have permission. Sign in again.' => __( 'Your session has expired or you do not have permission. Sign in again.', 'linksolva-broken-link-checker' ),
 					'Your session has expired. Sign in again and retry.' => __( 'Your session has expired. Sign in again and retry.', 'linksolva-broken-link-checker' ),
 					'Findings could not be loaded.' => __( 'Findings could not be loaded.', 'linksolva-broken-link-checker' ),
+					'Secure URL checks are unavailable. Enable PHP cURL and the WordPress Requests cURL transport; affected URLs will remain unverified.' => __( 'Secure URL checks are unavailable. Enable PHP cURL and the WordPress Requests cURL transport; affected URLs will remain unverified.', 'linksolva-broken-link-checker' ),
 					'Try again' => __( 'Try again', 'linksolva-broken-link-checker' ),
 					'Loading…' => __( 'Loading…', 'linksolva-broken-link-checker' ),
 					'Saving…' => __( 'Saving…', 'linksolva-broken-link-checker' ),

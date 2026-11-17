@@ -45,6 +45,20 @@ final class Repair {
 		$target          = $resource ? $resource->url : $occurrence->raw_url;
 		$old_resource_id = absint( $occurrence->resource_id );
 		$scan_id         = absint( $occurrence->scan_id );
+		$ordinal         = null;
+		if ( 'menu_item' === $occurrence->source_type ) {
+			$menu_post = get_post( $occurrence->source_id );
+			$item      = $menu_post ? wp_setup_nav_menu_item( $menu_post ) : false;
+			$current   = $item && isset( $item->url ) ? $item->url : '';
+			if ( ! $current || ! self::urls_match( $current, $occurrence->raw_url, $occurrence->source_url ) ) {
+				return new \WP_Error( 'sblc_source_changed', __( 'The menu item changed since this finding was recorded. Recheck it before editing.', 'linksolva-broken-link-checker' ), array( 'status' => 409 ) );
+			}
+		} else {
+			$ordinal = self::occurrence_ordinal( $occurrence, $before, $target );
+			if ( null === $ordinal ) {
+				return new \WP_Error( 'sblc_source_changed', __( 'The source changed since this finding was recorded. Run a new scan before editing it.', 'linksolva-broken-link-checker' ), array( 'status' => 409 ) );
+			}
+		}
 		if ( ! $scan_id && $resource ) {
 			$scan_id = absint( $resource->last_scan_id );
 		}
@@ -61,7 +75,7 @@ final class Repair {
 				return new \WP_Error( 'sblc_replacement_prepare_failed', __( 'The replacement URL could not be prepared for verification. The source was not changed.', 'linksolva-broken-link-checker' ), array( 'status' => 500 ) );
 			}
 			$verification = Http_Checker::check( $replacement );
-			if ( ! in_array( $verification['status'], array( 'healthy', 'redirect' ), true ) ) {
+			if ( ! in_array( $verification['status'], array( 'healthy', 'redirect' ), true ) || 'confirmed' !== $verification['confidence'] ) {
 				Database::retire_resource_if_orphaned( $new_resource_id );
 				return new \WP_Error(
 					'sblc_replacement_not_verified',
@@ -80,15 +94,9 @@ final class Repair {
 			if ( 'replace' !== $operation ) {
 				return new \WP_Error( 'sblc_menu_action_invalid', __( 'Only URL replacement is supported for menu items.', 'linksolva-broken-link-checker' ), array( 'status' => 400 ) );
 			}
-			$menu_post = get_post( $occurrence->source_id );
-			$item      = $menu_post ? wp_setup_nav_menu_item( $menu_post ) : false;
-			$current   = $item && isset( $item->url ) ? $item->url : '';
-			if ( ! $current || ! self::urls_match( $current, $occurrence->raw_url, $occurrence->source_url ) ) {
-				return new \WP_Error( 'sblc_source_changed', __( 'The menu item changed since this finding was recorded. Recheck it before editing.', 'linksolva-broken-link-checker' ), array( 'status' => 409 ) );
-			}
 			$after = $replacement;
 		} else {
-			$after = Extractor::edit( $before, $occurrence->raw_url, $target, $replacement, $operation, $occurrence->source_url );
+			$after = Extractor::edit( $before, $occurrence->raw_url, $target, $replacement, $operation, $occurrence->source_url, $ordinal, $occurrence->location );
 			if ( is_wp_error( $after ) ) {
 				return $after;
 			}
@@ -121,6 +129,15 @@ final class Repair {
 		);
 		if ( ! $repair_id ) {
 			return new \WP_Error( 'sblc_audit_failed', __( 'The source was not changed because the undo record could not be created.', 'linksolva-broken-link-checker' ), array( 'status' => 500 ) );
+		}
+
+		// Recheck after remote verification so an editor's intervening change is never overwritten.
+		if ( self::source_value( $occurrence ) !== $before ) {
+			if ( $new_resource_id && $new_resource_id !== $old_resource_id ) {
+				Database::retire_resource_if_orphaned( $new_resource_id );
+			}
+			Database::update_repair( $repair_id, array( 'undone' => 1, 'undo_error' => __( 'The repair was not applied because the source changed during verification.', 'linksolva-broken-link-checker' ) ) );
+			return new \WP_Error( 'sblc_source_changed', __( 'The source changed while the replacement was being verified. Run a new scan before editing it.', 'linksolva-broken-link-checker' ), array( 'status' => 409 ) );
 		}
 
 		$result = self::save_source( $occurrence, $after );
@@ -316,6 +333,33 @@ final class Repair {
 		return null;
 	}
 
+	/** Find the original occurrence in the current source, failing closed if it changed. */
+	private static function occurrence_ordinal( $occurrence, $content, $target ) {
+		$candidates = Extractor::extract( $content, $occurrence->source_url, array( 'content' => $content ) );
+		if ( ! empty( $occurrence->source_checksum ) && ! hash_equals( $occurrence->source_checksum, hash( 'sha256', $content ) ) ) {
+			return null;
+		}
+		if ( empty( $occurrence->source_checksum ) ) {
+			$matching = array_filter( $candidates, static function ( $candidate ) use ( $occurrence, $target ) {
+				return $candidate['location'] === $occurrence->location && $candidate['url'] === $target;
+			} );
+			if ( count( $matching ) !== 1 ) { return null; }
+		}
+		$ordinal = 0;
+		foreach ( $candidates as $index => $candidate ) {
+			if ( $candidate['location'] !== $occurrence->location || $candidate['url'] !== $target ) {
+				continue;
+			}
+			if ( 'text' === $candidate['location'] && $candidate['raw_url'] !== $occurrence->raw_url ) { continue; }
+			$hash = hash( 'sha256', wp_json_encode( array( absint( $occurrence->resource_id ), absint( $occurrence->scan_id ), $occurrence->source_type, absint( $occurrence->source_id ), $occurrence->source_field, $candidate['raw_url'], $candidate['location'], absint( $index ) ) ) );
+			if ( hash_equals( $occurrence->occurrence_hash, $hash ) ) {
+				return $ordinal;
+			}
+			++$ordinal;
+		}
+		return null;
+	}
+
 	/**
 	 * Save a source value.
 	 *
@@ -328,7 +372,7 @@ final class Repair {
 			return wp_update_post(
 				array(
 					'ID'           => absint( $occurrence->source_id ),
-					'post_content' => $value,
+					'post_content' => wp_slash( $value ),
 				),
 				true
 			);
@@ -337,19 +381,35 @@ final class Repair {
 			return wp_update_comment(
 				array(
 					'comment_ID'      => absint( $occurrence->source_id ),
-					'comment_content' => $value,
+					'comment_content' => wp_slash( $value ),
 				)
 			);
 		}
 		if ( 'menu_item' === $occurrence->source_type ) {
 			$menu_id = self::menu_id_for_item( $occurrence->source_id );
+			$post = get_post( $occurrence->source_id );
+			$item = $post ? wp_setup_nav_menu_item( $post ) : false;
+			if ( ! $menu_id || ! $item ) {
+				return false;
+			}
 			return $menu_id ? wp_update_nav_menu_item(
 				$menu_id,
 				$occurrence->source_id,
-				array(
+				wp_slash( array(
 					'menu-item-url'    => esc_url_raw( $value ),
-					'menu-item-status' => 'publish',
-				)
+					'menu-item-status' => $post->post_status,
+					'menu-item-title' => $post->post_title,
+					'menu-item-description' => $post->post_content,
+					'menu-item-attr-title' => $post->post_excerpt,
+					'menu-item-parent-id' => $item->menu_item_parent,
+					'menu-item-position' => $post->menu_order,
+					'menu-item-type' => $item->type,
+					'menu-item-object' => $item->object,
+					'menu-item-object-id' => $item->object_id,
+					'menu-item-target' => $item->target,
+					'menu-item-classes' => implode( ' ', (array) $item->classes ),
+					'menu-item-xfn' => $item->xfn,
+				) )
 			) : false;
 		}
 		return false;

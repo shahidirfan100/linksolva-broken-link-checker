@@ -6,7 +6,7 @@ The plugin does not require a cloud account, developer service, telemetry, adver
 
 ## Current version
 
-1.0.22
+1.0.24
 
 ## Scope
 
@@ -20,7 +20,7 @@ The scanner distinguishes successful responses, redirects, definitive 404/410 fa
 
 ## Development notes
 
-The plugin uses WordPress HTTP APIs and the WordPress-bundled Requests library for parallel initial HEAD requests, with redirect following disabled. Each redirect target is normalized and validated before the next request. Requests are limited by timeout, redirect count, response size, and a serialized worker lock. Worker duration follows PHP's execution-time limit. Batch size and parallel checks adjust to available PHP memory, with a maximum of four concurrent URL checks. When the remaining worker budget is too short, verification waits for a fresh worker. Timeouts are retried up to the configured limit before remaining unverified. PHP execution limits can shorten the effective request timeout. PHP does not expose reliable per-account CPU quotas on all shared hosts, so the plugin uses conservative concurrency limits rather than claiming to measure CPU availability. Replacement repairs are verified before the old orphaned finding is retired, and undo restores the original resource mapping. The admin application uses plain JavaScript and scoped CSS loaded only on plugin screens.
+The scanner resolves public domains before each HTTP check and pins cURL to a validated address. Redirect destinations are validated and pinned one hop at a time. Requests routed through a configured WordPress or environment proxy remain unverified so destination pinning cannot be bypassed. The scanner honors WordPress's outbound blocking setting and `pre_http_request` short-circuits. After editing a source, run a new scan before repairing another finding in it. Requests are bounded by timeout, redirect count, response size, and a serialized worker lock. Worker duration follows PHP's execution-time limit, and concurrency adjusts to available memory with a maximum of four checks. When the remaining worker budget is too short, verification waits for a fresh worker. Timeouts are retried up to the configured limit before remaining unverified. Replacement repairs are verified before the old finding is retired, and undo restores the original resource mapping. The admin application uses plain JavaScript and scoped CSS loaded only on plugin screens.
 
 ## WordPress.org media
 

@@ -8,7 +8,7 @@ namespace {
 	define( 'WPINC', 'wp-includes' );
 	define( 'DAY_IN_SECONDS', 86400 );
 	define( 'LINKSOLVA_BLC_VERSION', '1.0.19' );
-	class WP_HTTP_Requests_Hooks {}
+	class WP_HTTP_Requests_Hooks { public function register( $hook, $callback ) {} }
 	class WP_HTTP_Proxy {
 		public function is_enabled() { return false; }
 	}
@@ -56,6 +56,7 @@ namespace {
 	function home_url( $path = '/' ) {
 		return 'https://site.example' . $path;
 	}
+	function wp_parse_url( $url, $component = -1 ) { return parse_url( $url, $component ); }
 
 	function sanitize_key( $value ) {
 		return strtolower( preg_replace( '/[^a-z0-9_-]/', '', $value ) );
@@ -65,6 +66,8 @@ namespace {
 		return (string) $value;
 	}
 }
+
+namespace WpOrg\Requests\Transport { class Curl {} }
 
 namespace WpOrg\Requests {
 	final class Requests {
@@ -96,6 +99,7 @@ namespace LinkSolva\BrokenLinkChecker {
 				'safe' => true,
 				'code' => '',
 				'host' => 'slow-dns.example',
+				'addresses' => array( '8.8.8.8' ),
 			);
 		}
 	}

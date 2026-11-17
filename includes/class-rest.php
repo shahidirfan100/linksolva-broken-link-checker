@@ -178,8 +178,9 @@ final class Rest {
 	public static function dashboard() {
 		return rest_ensure_response(
 			array(
-				'progress' => Scanner::latest_progress(),
-				'counts'   => Database::counts(),
+				'progress'       => Scanner::latest_progress(),
+				'counts'         => Database::counts(),
+				'transport_ready' => Http_Checker::supports_pinned_transport(),
 			)
 		);
 	}
@@ -490,8 +491,9 @@ final class Rest {
 			);
 		}
 		return array(
-			'settings'   => Settings::all(),
-			'post_types' => $post_types,
+			'settings'       => Settings::all(),
+			'post_types'     => $post_types,
+			'transport_ready' => Http_Checker::supports_pinned_transport(),
 		);
 	}
 
